@@ -21,6 +21,9 @@
 /build
 
 # misc
+/data/
+/.next-smoke/
+/.next-production-check/
 .DS_Store
 *.pem
 
