@@ -116,3 +116,11 @@ Alternatively, to seed demo rows through SQL, first create Auth users for
 `demo.admin@example.com`, `agency1@example.com`, and `agency2@example.com`, then
 run `sql/demo-data.postgres.sql`. This seeds records only for those existing
 Auth users. Set their passwords in Supabase Auth, not in SQL.
+
+## Updated admin and agency dashboards
+
+See [Dashboard upgrade](docs/dashboard-upgrade.md) for the new focused workspace
+navigation, role-specific overviews, and database migration instructions. Existing
+Supabase projects must apply
+`sql/migrations/20261101_dashboard_summary.sql` before running this dashboard.
+New projects can use the updated complete `sql/schema.postgres.sql`.

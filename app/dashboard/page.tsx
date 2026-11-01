@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { SearchableCollection } from "@/components/dashboard/searchable-collection";
+import { WorkspaceShell, WorkspaceSection, WorkspaceNavLink } from "@/components/dashboard/workspace-shell";
 import { redirect } from "next/navigation";
 import type { ReactNode } from "react";
 import { requireUser } from "@/lib/auth";
@@ -130,26 +132,22 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
   const supabase = await createSupabaseServerClient();
   const parsedPage = Number(query.leadsPage);
   const requestedPage = Number.isSafeInteger(parsedPage) && parsedPage > 0 && parsedPage <= 1_000_000 ? parsedPage : 1;
-  const [propertyResult, leadResult, activeLeadCountResult, staffResult] = await Promise.all([
+  const [propertyResult, leadResult, summaryResult, staffResult] = await Promise.all([
     supabase.from("properties").select("*").order("created_at", { ascending: false }),
     supabase.from("leads")
       .select("*", { count: "exact" })
       .order("created_at", { ascending: false })
       .order("id", { ascending: false })
       .range((requestedPage - 1) * ENQUIRIES_PER_PAGE, requestedPage * ENQUIRIES_PER_PAGE - 1),
-    supabase.from("leads").select("id", { count: "exact", head: true }).not("status", "in", '("closed","lost")'),
+    supabase.rpc("realty_dashboard_summary", {}),
     supabase.from("profiles").select("id,name,email,role,agency_id").neq("role", "super_admin").order("name"),
   ]);
   const rawProperties = supabaseData(propertyResult.data, propertyResult.error, "Unable to load properties");
   const rawLeads = supabaseData(leadResult.data, leadResult.error, "Unable to load enquiries");
-  if (activeLeadCountResult.error) {
-    throw new Error(`Unable to count open enquiries: ${activeLeadCountResult.error.message}`);
-  }
-  if (leadResult.count === null || activeLeadCountResult.count === null) {
-    throw new Error("Unable to count customer enquiries.");
-  }
+  const summary = supabaseData(summaryResult.data, summaryResult.error, "Unable to load dashboard summary. Apply sql/migrations/20261101_dashboard_summary.sql")?.[0];
+  if (!summary || leadResult.count === null) throw new Error("Unable to load dashboard counts.");
   const totalLeadCount = leadResult.count;
-  const activeLeads = activeLeadCountResult.count;
+  const activeLeads = summary.open_leads;
   const totalLeadPages = Math.max(1, Math.ceil(totalLeadCount / ENQUIRIES_PER_PAGE));
   if (requestedPage > totalLeadPages) {
     redirect(`/dashboard?leadsPage=${totalLeadPages}#leads`);
@@ -184,24 +182,24 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
   const agenciesById = new Map(agencies.map((agency) => [agency.id, agency.name]));
   const properties: DashboardProperty[] = rawProperties.map((property) => ({
     ...property,
-    agency_name: agenciesById.get(property.agency_id),
+    agency_name: agenciesById.get(property.agency_id) || agencyDetails?.name,
   }));
-  const leads: DashboardLead[] = rawLeads.map((lead) => ({ ...lead, agency_name: agenciesById.get(lead.agency_id) }));
+  const leads: DashboardLead[] = rawLeads.map((lead) => ({ ...lead, agency_name: agenciesById.get(lead.agency_id) || agencyDetails?.name }));
   const agencyName = agencyDetails?.name;
-  const pendingProperties = properties.filter((property) => property.status === "pending").length;
-  const pendingAgencies = agencies.filter((agency) => agency.status === "pending").length;
+  const pendingProperties = summary.pending;
+  const pendingAgencies = summary.pending_agencies;
   const navigation = [
     { label: "Overview", href: "#overview", icon: "overview" },
     ...(isSuperAdmin ? [{ label: "Agencies", href: "#agencies", icon: "agencies", count: pendingAgencies }] : []),
     ...(!isSuperAdmin ? [{ label: "Agency details", href: "#agency-details", icon: "agencies" }] : []),
-    { label: isSuperAdmin ? "All properties" : "My properties", href: isSuperAdmin ? "#inventory" : "/dashboard/properties", icon: "properties", count: isSuperAdmin ? pendingProperties : undefined },
+    { label: isSuperAdmin ? "All properties" : "My properties", href: "#inventory", icon: "properties", count: isSuperAdmin ? pendingProperties : undefined },
     { label: "Enquiries", href: "#leads", icon: "leads", count: activeLeads },
     { label: isSuperAdmin ? "Agency users" : "Team", href: "#team", icon: "team" },
     ...(isSuperAdmin ? [{ label: "Activity", href: "#activity", icon: "activity" }] : []),
   ];
 
   return (
-    <div className="dashboard-shell">
+    <WorkspaceShell allowedViews={isSuperAdmin ? ["overview", "agencies", "inventory", "leads", "team", "activity"] : ["overview", "agency-details", "inventory", "leads", "team"]}>
       <aside className="dashboard-sidebar">
         <Link className="dashboard-sidebar-brand" href="/">
           <span className="dashboard-sidebar-brandmark">{isSuperAdmin ? "W" : agencyName?.trim().slice(0, 1).toUpperCase() || "W"}</span>
@@ -219,11 +217,11 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
         <p className="dashboard-sidebar-label">WORKSPACE</p>
         <nav aria-label="Dashboard sections" className="dashboard-sidebar-nav">
           {navigation.map((item) => (
-            <a href={item.href} key={item.href}>
+            <WorkspaceNavLink href={item.href} key={item.href}>
               <SidebarIcon name={item.icon} />
               <span>{item.label}</span>
               {item.count ? <small>{item.count}</small> : null}
-            </a>
+            </WorkspaceNavLink>
           ))}
         </nav>
 
@@ -239,11 +237,14 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
       </aside>
       <div className="dashboard-main">
         <main className="workspace dashboard">
-        <section id="overview" className={`dashboard-hero ${isSuperAdmin ? "dashboard-hero-admin" : "dashboard-hero-agency"}`}>
+        <header className="workspace-topbar"><div><span className="workspace-status-dot" /> {isSuperAdmin ? "Platform control center" : "Agency workspace"}</div><span>{user.role.replaceAll("_", " ")} <strong>{user.name}</strong></span></header>
+        <Notice message={query.message} />
+        <WorkspaceSection id="overview">
+        <section className={`dashboard-hero ${isSuperAdmin ? "dashboard-hero-admin" : "dashboard-hero-agency"}`}>
           <div className="dashboard-hero-copy">
             <p className="kicker">{isSuperAdmin ? "PLATFORM ADMINISTRATION" : "AGENCY WORKSPACE"}</p>
             <h1>
-              {isSuperAdmin ? "Platform monitoring." : <>Welcome back, <em>{user.name}.</em></>}
+              {isSuperAdmin ? "Your platform, at a glance." : <>Welcome back, <em>{user.name}.</em></>}
             </h1>
             <p className="muted">
               {isSuperAdmin
@@ -254,36 +255,56 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
           <Link className="btn" href="/dashboard/properties/new">+ Add property</Link>
         </section>
 
-        <Notice message={query.message} />
+
 
         <section aria-label="Dashboard summary" className="dashboard-metrics">
           {isSuperAdmin ? (
             <>
-              <Metric label="Agencies" value={agencies.length} detail="All registered agencies" />
+              <Metric label="Agencies" value={summary.agency_total} detail="All registered agencies" />
               <Metric
                 label="Pending agencies"
-                value={agencies.filter((agency) => agency.status === "pending").length}
+                value={summary.pending_agencies}
                 detail="Current agency status"
               />
               <Metric label="Pending listings" value={pendingProperties} detail="Current listing status" />
               <Metric
                 label="Published listings"
-                value={properties.filter((property) => property.status === "published").length}
+                value={summary.published}
                 detail="Private to their agency workspaces"
               />
             </>
           ) : (
             <>
-              <Metric label="Property listings" value={properties.length} detail="Across your agency" />
-              <Metric label="Published listings" value={properties.filter((property) => property.status === "published").length} detail="Private to your agency workspace" />
+              <Metric label="Property listings" value={summary.property_total} detail="Across your agency" />
+              <Metric label="Published listings" value={summary.published} detail="Private to your agency workspace" />
               <Metric label="Open enquiries" value={activeLeads} detail="Needs a follow-up" />
-              <Metric label="Team members" value={staff.length} detail="People in your workspace" />
+              <Metric label="Team members" value={summary.team_count} detail="People in your workspace" />
             </>
           )}
         </section>
 
+        <div className="workspace-overview-grid">
+          <article className="panel workspace-priorities">
+            <div className="workspace-card-heading"><div><p className="kicker">YOUR NEXT STEPS</p><h2>Needs your attention</h2></div><span className="workspace-round-icon"><SidebarIcon name="activity" /></span></div>
+            {isSuperAdmin && <a className="workspace-task" href="#agencies"><span className="workspace-task-icon"><SidebarIcon name="agencies" /></span><span><strong>Agency approvals</strong><small>Review registrations and manage workspace access</small></span><b>{pendingAgencies}</b><span>→</span></a>}
+            <a className="workspace-task" href="#inventory"><span className="workspace-task-icon"><SidebarIcon name="properties" /></span><span><strong>{isSuperAdmin ? "Listing review" : "Your property inventory"}</strong><small>{pendingProperties} pending · keep availability up to date</small></span><b>{summary.property_total}</b><span>→</span></a>
+            <a className="workspace-task" href="#leads"><span className="workspace-task-icon"><SidebarIcon name="leads" /></span><span><strong>Customer follow-ups</strong><small>Open conversations waiting for their next step</small></span><b>{activeLeads}</b><span>→</span></a>
+            <a className="workspace-task" href="#team"><span className="workspace-task-icon"><SidebarIcon name="team" /></span><span><strong>{isSuperAdmin ? "People & access" : "Your team"}</strong><small>{isSuperAdmin ? "Manage agency roles and accounts" : "Find your agents and manage team access"}</small></span><b>{summary.team_count}</b><span>→</span></a>
+          </article>
+          <article className="panel workspace-inventory-summary">
+            <p className="kicker">INVENTORY SNAPSHOT</p><h2>A clearer view of your listings</h2>
+            <div className="workspace-inventory-total"><strong>{summary.property_total}</strong><span>total properties</span></div>
+            {[{ label: "Published", status: "published" }, { label: "Pending review", status: "pending" }, { label: "Sold", status: "sold" }, { label: "Rented", status: "rented" }, { label: "Withdrawn", status: "withdrawn" }, { label: "Rejected", status: "rejected" }].map(({ label, status }) => {
+              const count = summary[status as "published" | "pending" | "sold" | "rented" | "withdrawn" | "rejected"];
+              return <div className="workspace-progress" key={status}><div><span>{label}</span><strong>{count}</strong></div><progress aria-label={label} max={Math.max(summary.property_total, 1)} value={count} /></div>;
+            })}
+          </article>
+        </div>
+        <article className="panel workspace-get-started"><div><p className="kicker">{isSuperAdmin ? "BUILT FOR YOUR PLATFORM" : "MAKE YOUR NEXT MOVE"}</p><h2>{isSuperAdmin ? "Every workspace. One clear view." : "More time for clients. Less time searching."}</h2><p className="muted">{isSuperAdmin ? "Use the navigation to manage agencies, properties, customer enquiries and account access separately." : "Add a listing, record a customer enquiry, or update your business profile. Each task has its own space."}</p></div><div><Link className="btn" href="/dashboard/properties/new">+ Create listing</Link><Link className="btn workspace-secondary" href="/dashboard/leads/new">+ Add enquiry</Link></div></article>
+        </WorkspaceSection>
+
         {!isSuperAdmin && agencyDetails && (
-          <section id="agency-details" className="dashboard-section agency-profile-section">
+          <WorkspaceSection id="agency-details" className="dashboard-section agency-profile-section">
             <div className="dashboard-section-heading">
               <div>
                 <p className="kicker">YOUR BUSINESS PROFILE</p>
@@ -292,11 +313,11 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
               <span className={`badge ${agencyDetails.status}`}>{agencyDetails.status}</span>
             </div>
             <AgencyDetails agency={agencyDetails} editable={user.role === "agency_admin"} />
-          </section>
+          </WorkspaceSection>
         )}
 
         {isSuperAdmin && (
-          <section id="agencies" className="dashboard-section">
+          <WorkspaceSection id="agencies" className="dashboard-section">
             <div className="dashboard-section-heading">
               <div>
                 <p className="kicker">AGENCY ADMINISTRATION</p>
@@ -305,8 +326,8 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
               <p className="muted">Edit profiles, control access, and manage each agency workspace and its data.</p>
             </div>
             <div className="panel dashboard-list">
-              {agencies.map((agency) => (
-                <div className="agency-row" key={agency.id}>
+              <SearchableCollection label="Find an agency" items={agencies.map((agency) => ({ id: agency.id, search: `${agency.name} ${agency.phone} ${agency.status}`, content: (
+                <details className="agency-row workspace-agency" key={agency.id}><summary><span className="workspace-agency-avatar">{agency.name.slice(0, 1).toUpperCase()}</span><span><strong>{agency.name}</strong><small>{agency.user_count} people · {agency.property_count} properties</small></span><span className={`badge ${agency.status}`}>{agency.status}</span><span className="workspace-expand">Manage ↗</span></summary>
                   <div className="dashboard-agency-detail">
                     <AgencyDetails agency={agency} editable superAdmin />
                     <div className="dashboard-row-end">
@@ -327,14 +348,13 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
                       </form>
                     </div>
                   </div>
-                </div>
-              ))}
-              {!agencies.length && <p className="empty">Agency registrations will appear here.</p>}
+                </details>
+              ) }))} />
             </div>
-          </section>
+          </WorkspaceSection>
         )}
 
-        <section id="inventory" className="dashboard-section">
+        <WorkspaceSection id="inventory" className="dashboard-section">
           <div className="dashboard-section-heading">
             <div>
               <p className="kicker">{isSuperAdmin ? "ALL AGENCY LISTINGS" : "YOUR INVENTORY"}</p>
@@ -349,9 +369,8 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
               ? <Link className="btn small" href="/dashboard/properties/new">+ Add agency property</Link>
               : <Link className="btn small" href="/dashboard/properties">Open my property workspace →</Link>}
           </div>
-          <div className="table-wrap panel">
-            <table>
-              <thead>
+          <div className="panel workspace-property-list">
+            <SearchableCollection label="Find a property" placeholder="Search title, city, agency or status…" tableHeader={
                 <tr>
                   <th>Property</th>
                   {isSuperAdmin && <th>Agency</th>}
@@ -359,9 +378,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
                   <th>Status</th>
                   <th>Manage</th>
                 </tr>
-              </thead>
-              <tbody>
-                {properties.map((property) => (
+              } items={properties.map((property) => ({ id: property.id, search: `${property.title} ${property.city} ${property.locality} ${property.agency_name || ""} ${property.status} ${property.intent}`, content: (
                   <tr key={property.id}>
                     <td>
                       <strong>{property.title}</strong>
@@ -397,18 +414,11 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
                       )}
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-            {!properties.length && (
-              <p className="empty">
-                {isSuperAdmin ? "No agency listings have been submitted yet." : "Add your first listing to get started."}
-              </p>
-            )}
+            ) }))} />
           </div>
-        </section>
+        </WorkspaceSection>
 
-        <section id="leads" className="dashboard-section">
+        <WorkspaceSection id="leads" className="dashboard-section">
           <div className="dashboard-section-heading dashboard-section-heading-action">
             <div>
               <p className="kicker">CUSTOMER RELATIONSHIPS</p>
@@ -437,9 +447,9 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
               </div>
             </nav>
           )}
-        </section>
+        </WorkspaceSection>
 
-        <section id="team" className="dashboard-section">
+        <WorkspaceSection id="team" className="dashboard-section">
           <div className="dashboard-section-heading">
             <div>
               <p className="kicker">{isSuperAdmin ? "WORKSPACE ACCESS" : "PEOPLE"}</p>
@@ -451,7 +461,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
           </div>
           <div className="detail-columns">
             <div className="panel dashboard-list">
-              {staff.map((member) => (
+              <SearchableCollection label="Find a team member" items={staff.map((member) => ({ id: member.id, search: `${member.name} ${member.email} ${member.role} ${agenciesById.get(member.agency_id || "") || ""}`, content: (
                 <div className="agency-row" key={member.id}>
                   <div>
                     <strong>{member.name}</strong>
@@ -460,7 +470,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
                   <div className="dashboard-row-end">
                     {isSuperAdmin && <small>{agencies.find((agency) => agency.id === member.agency_id)?.name}</small>}
                     <span className="badge">{member.role.replaceAll("_", " ")}</span>
-                    {(isSuperAdmin || (user.role === "agency_admin" && member.role === "agent")) && <form action={updateStaff} className="team-member-edit">
+                    {(isSuperAdmin || (user.role === "agency_admin" && member.role === "agent")) && <details className="workspace-member-edit"><summary>Edit account</summary><form action={updateStaff} className="team-member-edit">
                       <input type="hidden" name="id" value={member.id} />
                       {isSuperAdmin && (
                         <label>Agency<select name="agency_id" required defaultValue={member.agency_id || ""}>
@@ -474,15 +484,14 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
                       {isSuperAdmin && <label>Role<select name="role" defaultValue={member.role === "agency_admin" ? "agency_admin" : "agent"}><option value="agent">Agent</option><option value="agency_admin">Agency admin</option></select></label>}
                       {!isSuperAdmin && <input type="hidden" name="role" value="agent" />}
                       <button className="btn small">Save team member</button>
-                    </form>}
+                    </form></details>}
                     {(isSuperAdmin || (user.role === "agency_admin" && member.role === "agent")) && <form action={deleteStaff}>
                       <input type="hidden" name="id" value={member.id} />
                       <ConfirmDeleteButton confirmMessage={`Remove ${member.name} from this agency? Their active sessions will be revoked.`}>Remove user</ConfirmDeleteButton>
                     </form>}
                   </div>
                 </div>
-              ))}
-              {!staff.length && <p className="empty">Team accounts will appear here.</p>}
+              ) }))} />
             </div>
             {(user.role === "agency_admin" || isSuperAdmin) && (
               <form action={addStaff} className="panel stack dashboard-add-staff">
@@ -498,9 +507,9 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
               </form>
             )}
           </div>
-        </section>
+        </WorkspaceSection>
 
-        {isSuperAdmin && <section id="activity" className="dashboard-section">
+        {isSuperAdmin && <WorkspaceSection id="activity" className="dashboard-section">
           <div className="dashboard-section-heading">
             <div>
               <p className="kicker">AUDIT TRAIL</p>
@@ -518,9 +527,9 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
             ))}
             {!activity.length && <p className="empty">Activity will appear here as your workspace is used.</p>}
           </div>
-        </section>}
+        </WorkspaceSection>}
         </main>
       </div>
-    </div>
+    </WorkspaceShell>
   );
 }

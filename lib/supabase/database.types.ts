@@ -93,6 +93,14 @@ export interface Database {
     };
     Views: Record<string, never>;
     Functions: {
+      realty_dashboard_summary: {
+        Args: Record<string, never>;
+        Returns: {
+          property_total: number; published: number; pending: number;
+          sold: number; rented: number; withdrawn: number; rejected: number;
+          open_leads: number; team_count: number; agency_total: number; pending_agencies: number;
+        }[];
+      };
       register_agency: {
         Args: {
           p_contact_name: string;
