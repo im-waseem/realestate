@@ -395,6 +395,7 @@ export async function updateAgencyProfile(form: FormData) {
     const lng = optionalNumber(form, "lng", -180, 180);
     if (!/^[+\d ()-]{7,25}$/.test(phone)) throw new Error("Enter a valid agency phone number.");
     if ((lat === null) !== (lng === null)) throw new Error("Provide both map coordinates or leave both blank.");
+    if (form.get("location_confirmed") !== "yes") throw new Error("Please confirm the map pin for the office address.");
     const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase.from("agencies").update({ name, phone, address, lat, lng }).eq("id", agencyId).select("id").maybeSingle();
     throwIfError(error);

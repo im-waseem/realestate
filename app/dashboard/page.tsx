@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { AgencyProfileEditor } from "@/components/dashboard/agency-profile-editor";
 import { SubmitButton } from "@/components/dashboard/submit-button";
 import { SearchableCollection } from "@/components/dashboard/searchable-collection";
 import { WorkspaceShell, WorkspaceSection, WorkspaceNavLink } from "@/components/dashboard/workspace-shell";
@@ -8,7 +9,7 @@ import { requireUser } from "@/lib/auth";
 import type { Lead, Property, User } from "@/lib/db";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { supabaseData } from "@/lib/supabase/results";
-import { addStaff, deleteAgency, deleteProperty, deleteStaff, logout, propertyStatus, setAgencyStatus, updateAgencyProfile, updateStaff } from "@/app/actions";
+import { addStaff, deleteAgency, deleteProperty, deleteStaff, logout, propertyStatus, setAgencyStatus, updateStaff } from "@/app/actions";
 import { Money, Notice } from "@/components/platform";
 import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
 import { EnquiriesTable } from "@/components/dashboard/enquiries-table";
@@ -76,7 +77,7 @@ function AgencyDetails({
           </a>
         )}
       </div>
-      {mapSrc ? (
+      {!editable && (mapSrc ? (
         <iframe
           className="agency-dashboard-map"
           title={`${agency.name} office location`}
@@ -89,22 +90,8 @@ function AgencyDetails({
           <span>Map location not added</span>
           <small>Add latitude and longitude when registering to display an office map here.</small>
         </div>
-      )}
-      {editable && (
-        <form action={updateAgencyProfile} className="stack agency-profile-form">
-          <p className="kicker">EDIT BUSINESS DETAILS</p>
-          {superAdmin && <input type="hidden" name="agency_id" value={agency.id} />}
-          <label>Agency name<input name="name" defaultValue={agency.name} maxLength={150} required /></label>
-          <label>Phone<input name="phone" type="tel" defaultValue={agency.phone} maxLength={25} required /></label>
-          <label>Office address<input name="address" defaultValue={agency.address} maxLength={500} required /></label>
-          <div className="form-grid">
-            <label>Latitude<input name="lat" type="number" min="-90" max="90" step="any" defaultValue={agency.lat ?? ""} /></label>
-            <label>Longitude<input name="lng" type="number" min="-180" max="180" step="any" defaultValue={agency.lng ?? ""} /></label>
-          </div>
-          <small>Enter both map coordinates or leave both blank. This map appears only inside the dashboard.</small>
-          <SubmitButton className="btn small">Save agency details</SubmitButton>
-        </form>
-      )}
+      ))}
+      {editable && <AgencyProfileEditor agency={agency} superAdmin={superAdmin} />}
     </div>
   );
 }
@@ -157,19 +144,14 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
   const staff: User[] = supabaseData(staffResult.data, staffResult.error, "Unable to load agency users");
   let agencies: Agency[] = [];
   let agencyDetails: Agency | undefined;
-  let activity: { id: string; agency_id: string | null; actor: string; action: string; created_at: string }[] = [];
   if (isSuperAdmin) {
-    const [agencyResult, activityResult] = await Promise.all([
-      supabase.from("agencies").select("*").order("created_at", { ascending: false }),
-      supabase.from("activity").select("*").order("created_at", { ascending: false }).limit(60),
-    ]);
+    const agencyResult = await supabase.from("agencies").select("*").order("created_at", { ascending: false });
     const agencyRows = supabaseData(agencyResult.data, agencyResult.error, "Unable to load agencies");
-    activity = supabaseData(activityResult.data, activityResult.error, "Unable to load activity");
     agencies = agencyRows.map((agency) => ({
       ...agency,
       user_count: staff.filter((member) => member.agency_id === agency.id).length,
       property_count: rawProperties.filter((property) => property.agency_id === agency.id).length,
-      activity_count: activity.filter((entry) => entry.agency_id === agency.id).length,
+      activity_count: 0,
     }));
   } else if (user.agency_id) {
     const { data, error } = await supabase.from("agencies").select("*").eq("id", user.agency_id).maybeSingle();
@@ -197,11 +179,10 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
     { label: isSuperAdmin ? "All properties" : "My properties", href: "#inventory", icon: "properties", count: isSuperAdmin ? pendingProperties : undefined },
     { label: "Enquiries", href: "#leads", icon: "leads", count: activeLeads },
     { label: isSuperAdmin ? "Agency users" : "Team", href: "#team", icon: "team" },
-    ...(isSuperAdmin ? [{ label: "Activity", href: "#activity", icon: "activity" }] : []),
   ];
 
   return (
-    <WorkspaceShell allowedViews={isSuperAdmin ? ["overview", "agencies", "inventory", "leads", "team", "activity"] : ["overview", "agency-details", "inventory", "leads", "team"]}>
+    <WorkspaceShell allowedViews={isSuperAdmin ? ["overview", "agencies", "inventory", "leads", "team"] : ["overview", "agency-details", "inventory", "leads", "team"]}>
       <aside className="dashboard-sidebar">
         <Link className="dashboard-sidebar-brand" href="/">
           <span className="dashboard-sidebar-brandmark">{isSuperAdmin ? "W" : agencyName?.trim().slice(0, 1).toUpperCase() || "W"}</span>
@@ -250,7 +231,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
             </h1>
             <p className="muted">
               {isSuperAdmin
-                ? "Manage agency profiles, listings, enquiries, teams, account status, and activity across the platform."
+                ? "Manage agency profiles, listings, enquiries, teams, and account access across the platform."
                 : `${agencyName || "Your agency"} · Manage your listings, customer enquiries, and team in one place.`}
             </p>
           </div>
@@ -272,13 +253,13 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
               <Metric
                 label="Published listings"
                 value={summary.published}
-                detail="Private to their agency workspaces"
+                detail="Visible in the public catalogue"
               />
             </>
           ) : (
             <>
               <Metric label="Property listings" value={summary.property_total} detail="Across your agency" />
-              <Metric label="Published listings" value={summary.published} detail="Private to your agency workspace" />
+              <Metric label="Published listings" value={summary.published} detail="Visible in the public catalogue" />
               <Metric label="Open enquiries" value={activeLeads} detail="Needs a follow-up" />
               <Metric label="Team members" value={summary.team_count} detail="People in your workspace" />
             </>
@@ -511,25 +492,6 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
           </div>
         </WorkspaceSection>
 
-        {isSuperAdmin && <WorkspaceSection id="activity" className="dashboard-section">
-          <div className="dashboard-section-heading">
-            <div>
-              <p className="kicker">AUDIT TRAIL</p>
-              <h2>Recent activity</h2>
-            </div>
-            <p className="muted">Recent events across agency workspaces.</p>
-          </div>
-          <div className="panel dashboard-list">
-            {activity.map((item) => (
-              <div className="activity-row" key={item.id}>
-                <span className="activity-dot" />
-                <div><strong>{item.actor}</strong><p>{item.action}</p></div>
-                <time>{item.created_at} UTC</time>
-              </div>
-            ))}
-            {!activity.length && <p className="empty">Activity will appear here as your workspace is used.</p>}
-          </div>
-        </WorkspaceSection>}
         </main>
       </div>
     </WorkspaceShell>

@@ -5,7 +5,7 @@ import { createContext, useContext, useEffect, useSyncExternalStore, type ReactN
 import styles from "./workspace.module.css";
 
 const View = createContext("overview");
-const sections = new Set(["overview", "agencies", "agency-details", "inventory", "leads", "team", "activity"]);
+const sections = new Set(["overview", "agencies", "agency-details", "inventory", "leads", "team"]);
 function currentView() {
   const hash = window.location.hash.slice(1);
   return sections.has(hash) ? hash : "overview";

@@ -8,14 +8,16 @@ export async function GET(_request: Request, { params }: { params: Promise<{ nam
   const { name } = await params;
   if (!/^[a-f0-9-]{36}\.(jpg|png|webp)$/.test(name)) return new Response("Not found", { status: 404 });
 
-  const user = await currentUser();
-  if (!user || (user.role !== "super_admin" && (!user.agency_id || user.agency_status !== "active"))) {
-    return new Response("Not found", { status: 404 });
-  }
   const supabase = await createSupabaseServerClient();
-  const { data: upload, error: uploadError } = await supabase.from("uploads").select("agency_id").eq("name", name).maybeSingle();
-  if (uploadError) return new Response("Unable to verify photo access.", { status: 500 });
-  if (!upload) return new Response("Not found", { status: 404 });
+  const { data: publicPhoto, error: publicPhotoError } = await supabase.rpc("realty_public_photo_allowed", { photo_name: name });
+  if (publicPhotoError) return new Response("Unable to verify photo access.", { status: 500 });
+  if (!publicPhoto) {
+    const user = await currentUser();
+    if (!user || (user.role !== "super_admin" && (!user.agency_id || user.agency_status !== "active"))) return new Response("Not found", { status: 404 });
+    const { data: upload, error } = await supabase.from("uploads").select("agency_id").eq("name", name).maybeSingle();
+    if (error) return new Response("Unable to verify photo access.", { status: 500 });
+    if (!upload) return new Response("Not found", { status: 404 });
+  }
 
   const admin = createSupabaseAdminClient();
   const { data: file, error } = await admin.storage.from("property-photos").download(name);

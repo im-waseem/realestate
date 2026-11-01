@@ -1,3 +1,4 @@
+import { publicProperties } from "@/lib/public-properties";
 import type { Metadata } from "next";
 import HomeClient, { type Home } from "./HomeClient";
 import { currentUser } from "@/lib/auth";
@@ -24,16 +25,17 @@ export default async function HomePage() {
     ? user.agency_id
     : null;
   const supabase = await createSupabaseServerClient();
-  let agency: { name: string; phone: string; address: string } | undefined;
+  let agency: { name: string; phone: string; address: string; lat: number | null; lng: number | null } | undefined;
   let properties: Property[] = [];
   if (agencyId) {
     const [agencyResult, propertyResult] = await Promise.all([
-      supabase.from("agencies").select("name,phone,address").eq("id", agencyId).maybeSingle(),
+      supabase.from("agencies").select("name,phone,address,lat,lng").eq("id", agencyId).maybeSingle(),
       supabase.from("properties").select("*").eq("agency_id", agencyId).order("created_at", { ascending: false }).limit(30),
     ]);
     agency = supabaseData(agencyResult.data, agencyResult.error, "Unable to load agency profile") ?? undefined;
     properties = supabaseData(propertyResult.data, propertyResult.error, "Unable to load agency properties");
   }
+  const publicListings = agencyId ? [] : await publicProperties();
   const homes: Home[] = properties.map((property) => ({
     id: property.id,
     name: property.title,
@@ -54,11 +56,13 @@ export default async function HomePage() {
   }));
   return (
     <HomeClient
-      homes={homes}
+      homes={agencyId ? homes : publicListings.map(property => ({ id:property.id,name:property.title,location:`${property.locality}, ${property.city}`,price:property.price,beds:property.beds,baths:property.baths,area:property.area,image:coverImage(property.images),type:property.type,intent:property.intent,floorNumber:property.floor_number,totalFloors:property.total_floors,carParking:property.car_parking,twoWheelerParking:property.two_wheeler_parking }))}
       year={new Date().getFullYear()}
       agencyName={agency?.name}
       agencyPhone={agency?.phone}
       agencyAddress={agency?.address}
+      agencyLat={agency?.lat}
+      agencyLng={agency?.lng}
       canEditAgency={user?.role === "agency_admin"}
     />
   );

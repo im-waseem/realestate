@@ -1,0 +1,43 @@
+.market { max-width:1440px; margin:auto; padding:48px clamp(20px,4vw,64px) 72px; }
+.market h1 { font-size:clamp(30px,4vw,48px); font-weight:600; letter-spacing:-1.8px; line-height:1.15; color:#204432; margin:10px 0 18px; }
+.market h2 { font-size:23px; font-weight:600; color:#244933; }
+.intro { color:#72816c; font-size:14px; max-width:640px; line-height:1.8; }
+.filters { display:grid; grid-template-columns:2fr repeat(3,1fr); gap:16px; padding:22px; background:white; border:1px solid #e1e8d9; border-radius:14px; margin:30px 0; align-items:end; }
+.filters label { font-size:11px; font-weight:600; color:#657856; display:grid; gap:7px; }
+.filters input,.filters select { padding:12px; border-radius:8px; font-size:13px; }
+.filterActions { display:flex; align-items:center; gap:16px; grid-column:1/-1; }
+.filterActions a { font-size:12px; color:#677d55; }
+.grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:24px; margin-top:24px; }
+.card { min-width:0; border:1px solid #dfe7d7; background:white; border-radius:15px; overflow:hidden; transition:transform .2s,box-shadow .2s; }
+.card:hover { transform:translateY(-5px); box-shadow:0 12px 30px #203c2810; }
+.photo { position:relative; height:235px; display:grid; place-items:center; background:#e5ebdf; color:#748966; }
+.photo img { object-fit:cover; transition:transform .4s; }
+.card:hover .photo img { transform:scale(1.035); }
+.intent { position:absolute; top:15px; left:15px; border-radius:6px; padding:6px 10px; background:#fffffff0; color:#3b5f35; font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; }
+.cardBody { padding:22px; }
+.price { color:#325b37; font-size:21px; font-weight:600; margin:0 0 12px; }
+.cardBody h2 { font-size:17px; margin:0 0 8px; letter-spacing:-.4px; }
+.cardBody>p:not(.price) { font-size:12px; color:#7f8e75; }
+.specs { display:flex; gap:14px; flex-wrap:wrap; font-size:11px; color:#6f8265; padding:16px 0; }
+.cardBody footer { display:flex; justify-content:space-between; gap:12px; border-top:1px solid #edf0e6; padding-top:16px; font-size:11px; color:#6e835e; }
+.cardBody footer a { font-weight:600; }
+.pagination { display:flex; align-items:center; justify-content:center; gap:24px; margin:36px 0; font-size:13px; }
+.empty { padding:60px 24px; text-align:center; border:1px dashed #cddbc2; border-radius:15px; color:#75866b; }
+.detailGrid { display:grid; grid-template-columns:minmax(0,1.6fr) minmax(280px,1fr); gap:32px; margin-top:26px; align-items:start; }
+.gallery { display:flex; overflow:auto; gap:14px; margin:30px 0; scroll-snap-type:x mandatory; }
+.gallery>div { position:relative; height:380px; min-width:85%; border-radius:16px; overflow:hidden; scroll-snap-align:start; }
+.gallery img { object-fit:cover; }
+.detailPanel { background:white; border:1px solid #dfe7d7; border-radius:16px; padding:27px; }
+.detailPanel p { line-height:1.9; font-size:13px; color:#75826d; white-space:pre-wrap; overflow-wrap:anywhere; }
+.detailPanel dl { display:grid; grid-template-columns:1fr 1fr; gap:18px; font-size:12px; }
+.detailPanel dt { color:#829078; }.detailPanel dd { margin:4px 0 0; color:#3e6239; font-weight:600; }
+.enquiry { position:sticky; top:22px; }
+.enquiry form { display:grid; gap:17px; }
+.enquiry label { display:grid; gap:7px; font-size:12px; color:#6d825d; }
+.enquiry input,.enquiry textarea { border-radius:8px; }
+.map { width:100%; height:300px; border:1px solid #dfe7d7; border-radius:12px; margin-top:16px; }
+.honeypot { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+@media(max-width:1100px) { .grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .filters { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:760px) { .detailGrid { grid-template-columns:1fr; } .enquiry { position:static; } .gallery>div { height:280px; min-width:95%; } }
+@media(max-width:600px) { .grid { grid-template-columns:1fr; } .filters { padding:17px; gap:12px; } .filters label:first-child { grid-column:1/-1; } .market { padding-top:30px; } .detailPanel { padding:21px; } }
+@media(prefers-reduced-motion:reduce) { .card,.photo img { transition:none; } }

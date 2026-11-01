@@ -39,7 +39,7 @@ function PropertyCard({ home, agencyWorkspace = false }: { home: Home; agencyWor
         <Link href={href} className="home-card-image" aria-label={`${agencyWorkspace ? "Manage" : "View"} ${home.name}`}>
           {home.image && !imageFailed ? <Image src={home.image} alt={home.name} fill sizes="(max-width: 640px) 100vw, (max-width: 1000px) 50vw, 33vw" unoptimized onError={() => setImageFailed(true)} /> : <span className="photo-unavailable"><Icon name="home" size={36} /><span>Photos coming soon</span></span>}
         </Link>
-        <span className="home-card-tag">{agencyWorkspace ? home.status : "For sale"}</span>
+        <span className="home-card-tag">{agencyWorkspace ? home.status : `For ${home.intent || "sale"}`}</span>
       </div>
       <div className="home-card-body">
         <p className="home-card-price">{money(home.price)}</p>
@@ -62,6 +62,8 @@ export default function HomeClient({
   agencyName,
   agencyPhone,
   agencyAddress,
+  agencyLat,
+  agencyLng,
   canEditAgency = false,
 }: {
   homes: Home[];
@@ -69,6 +71,8 @@ export default function HomeClient({
   agencyName?: string;
   agencyPhone?: string;
   agencyAddress?: string;
+  agencyLat?: number | null;
+  agencyLng?: number | null;
   canEditAgency?: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -152,10 +156,10 @@ export default function HomeClient({
 
         {agencyName ? (
           <section id="discover" className="home-section discover-section" aria-labelledby="discover-heading" data-reveal>
-            <div className="home-section-heading"><div><p className="home-eyebrow">PRIVATE PROPERTY WORKSPACES</p><h2 id="discover-heading">Every agency, its own listings.</h2><p>{agencyName} properties are private to your agency. Select a listing to manage it.</p></div><Link href="/dashboard/properties" className="home-link">Manage all properties <Icon name="arrow" size={19} /></Link></div>
+            <div className="home-section-heading"><div><p className="home-eyebrow">PRIVATE PROPERTY WORKSPACES</p><h2 id="discover-heading">Your listings. Your workspace.</h2><p>{agencyName} workspace includes all your listings. Published properties also appear in the public catalogue. Select a listing to manage it.</p></div><Link href="/dashboard/properties" className="home-link">Manage all properties <Icon name="arrow" size={19} /></Link></div>
             {visible.length ? <div className="home-property-grid">{visible.map(home => <PropertyCard key={home.id} home={home} agencyWorkspace />)}</div> : <div className="home-empty"><span className="home-empty-icon"><Icon name="home" size={30} /></span><h3>No properties yet.</h3><p>Add your agency&apos;s first property to see it here.</p><Link href="/dashboard/properties/new" className="home-button home-button-outline">Add a property <Icon name="arrow" size={18} /></Link></div>}
           </section>
-        ) : null}
+        ) : <section className="home-section discover-section" aria-labelledby="public-listings-heading" data-reveal><div className="home-section-heading"><div><p className="home-eyebrow">FIND YOUR NEXT CHAPTER</p><h2 id="public-listings-heading">Fresh spaces. New possibilities.</h2><p>Discover available properties from active agencies.</p></div><Link href="/properties" className="home-link">Explore all properties →</Link></div>{visible.length ? <div className="home-property-grid">{visible.map(home => <PropertyCard key={home.id} home={home} />)}</div> : <div className="home-empty"><h3>New listings are on their way.</h3><p>Explore the catalogue or register your agency to add a property.</p><Link href="/properties" className="home-button">Browse properties →</Link></div>}</section>}
 
         {agencyName ? (
           <section className="home-section home-agency-contact" aria-labelledby="agency-contact-heading">
@@ -170,6 +174,7 @@ export default function HomeClient({
             <div className="panel agency-details-copy">
               <p><strong>Phone</strong>{agencyPhone ? <a href={`tel:${agencyPhone}`}>{agencyPhone}</a> : <span>Phone not provided</span>}</p>
               <p><strong>Office</strong><span>{agencyAddress || "Address not provided"}</span></p>
+              {agencyLat != null && agencyLng != null && <iframe className="agency-dashboard-map" title={`${agencyName} office location`} loading="lazy" src={`https://www.openstreetmap.org/export/embed.html?bbox=${agencyLng-.015},${agencyLat-.015},${agencyLng+.015},${agencyLat+.015}&layer=mapnik&marker=${agencyLat},${agencyLng}`} />}
             </div>
           </section>
         ) : (
@@ -183,7 +188,7 @@ export default function HomeClient({
 
         {!agencyName && <section className="home-contact" aria-labelledby="contact-heading"><div className="home-contact-inner" data-reveal><span className="contact-star" aria-hidden="true">✳</span><p className="home-eyebrow">GOOD HOMES. GOOD PEOPLE.</p><h2 id="contact-heading">Your next chapter<br />starts with <em>a hello.</em></h2><p>Tell us what you have in mind.<br />We&apos;ll help you find where to begin.</p><a className="home-button home-button-cream" href="mailto:waseemakram060396@gmail.com">Let&apos;s talk about home <Icon name="arrow" size={19} /></a></div></section>}
 
-        {!agencyName && <section className="home-section home-faq" aria-labelledby="faq-heading" data-reveal><div><p className="home-eyebrow">A LITTLE CLARITY</p><h2 id="faq-heading">Before you<br /><em>make your move.</em></h2></div><div className="faq-list">{[{ question: "How do I arrange a property visit?", answer: "Open a home for sale and send an enquiry with your contact details and requirements. The listing agency can follow up with you to discuss availability and arrange a visit." }, { question: "Can I save homes to compare later?", answer: "Yes. Tap the heart on a property card. Your saved selections stay in this browser. The homepage shows saved homes that are still available in its latest listings." }, { question: "How can I list a property?", answer: "Register your agency, sign in to your workspace, and add your property details and photos. Sale listings are published by your agency; rent and lease listings stay inside its dashboard." }].map(item => <details key={item.question}><summary>{item.question}<span aria-hidden="true">+</span></summary><p>{item.answer}</p></details>)}</div></section>}
+        {!agencyName && <section className="home-section home-faq" aria-labelledby="faq-heading" data-reveal><div><p className="home-eyebrow">A LITTLE CLARITY</p><h2 id="faq-heading">Before you<br /><em>make your move.</em></h2></div><div className="faq-list">{[{ question: "How do I arrange a property visit?", answer: "Open a home for sale and send an enquiry with your contact details and requirements. The listing agency can follow up with you to discuss availability and arrange a visit." }, { question: "Can I browse without an account?", answer: "Yes. Browse published listings, filter by location and budget, and send an enquiry without creating an agency account. Agency workspaces and customer details stay private." }, { question: "How can I list a property?", answer: "Register your agency and wait for approval. Then add property details and photos in your workspace. Published sale, rent and lease listings appear in the public catalogue." }].map(item => <details key={item.question}><summary>{item.question}<span aria-hidden="true">+</span></summary><p>{item.answer}</p></details>)}</div></section>}
       </main>
 
       <footer className="home-footer"><div className="home-footer-top"><Link href="/" className="home-brand"><span className="home-monogram">{agencyName ? `${agencyName.trim().slice(0, 1).toLowerCase()}.` : "w."}</span><span>{agencyName || "WASEEM"}<small>{agencyName ? "AGENCY WORKSPACE" : "REALTY"}</small></span></Link><p>Thoughtful spaces.<br />New beginnings.</p><nav aria-label="Footer navigation">{agencyName ? <><Link href="/dashboard">Workspace</Link><Link href="/dashboard/properties">My properties</Link><Link href="/dashboard/properties/new">Add property</Link></> : <><Link href="/properties">Explore properties</Link><Link href="/register">For agencies</Link><Link href="/dashboard">Agency workspace</Link></>}<a href="mailto:waseemakram060396@gmail.com">Get in touch <Icon name="arrow" size={15} /></a></nav></div><div className="home-footer-bottom"><span>© {year} {agencyName || "Waseem Realty"}. All rights reserved.</span><span>Made for the way you live.</span><a href="#top">Back to top ↑</a></div></footer>

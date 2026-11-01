@@ -1,0 +1,12 @@
+.editor { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.wide,.map,.results { grid-column:1/-1; }
+.map { position:relative; height:310px; border:1px solid #dce5d7; border-radius:12px; overflow:hidden; background:#e9eee5; cursor:crosshair; }
+.tiles { position:absolute; inset:0; pointer-events:none; }
+.pin { position:absolute; top:50%; left:50%; width:28px; height:28px; display:grid; place-items:center; color:white; background:#176b52; border:3px solid white; border-radius:50% 50% 50% 0; transform:translate(-50%,-100%) rotate(-45deg); box-shadow:0 3px 12px #0004; }
+.zoom { position:absolute; top:12px; left:12px; display:grid; background:white; border-radius:8px; box-shadow:0 2px 6px #0002; }
+.zoom button { width:34px; height:34px; cursor:pointer; border:0; background:white; font-size:22px; }
+.attribution { position:absolute; bottom:0; right:0; background:#fffffff0; padding:3px 7px; font-size:10px; }
+.results { list-style:none; padding:0; border:1px solid #dce5d7; border-radius:8px; }
+.results button { border:0; background:white; padding:12px; text-align:left; cursor:pointer; width:100%; }
+.results button:hover { background:#eef4e9; }
+@media(max-width:650px) { .editor { grid-template-columns:1fr; } .map { height:260px; } }

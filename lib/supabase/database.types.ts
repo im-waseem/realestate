@@ -93,6 +93,13 @@ export interface Database {
     };
     Views: Record<string, never>;
     Functions: {
+      realty_public_properties: {
+        Args: { search_text?: string; listing_intent?: string; property_type?: string; minimum_price?: number; maximum_price?: number; minimum_beds?: number; page_number?: number; target_id?: string };
+        Returns: PublicProperty[];
+      };
+      realty_public_photo_allowed: { Args: { photo_name: string }; Returns: boolean };
+      realty_submit_public_enquiry: { Args: { target_id: string; customer_name: string; customer_phone: string; customer_email: string; customer_message: string }; Returns: undefined };
+
       realty_dashboard_summary: {
         Args: Record<string, never>;
         Returns: {
@@ -125,3 +132,5 @@ export interface Database {
     CompositeTypes: Record<string, never>;
   };
 }
+
+export type PublicProperty = Pick<Property, "id" | "title" | "intent" | "type" | "price" | "beds" | "baths" | "area" | "locality" | "city" | "description" | "amenities" | "images" | "floor_number" | "total_floors" | "car_parking" | "two_wheeler_parking" | "furnishing" | "age_years"> & { map_lat: number; map_lng: number; agency_name: string; total_count: number };

@@ -49,6 +49,8 @@ try {
     await sleep(500);
   }
   assert.ok(ready, "Supabase-backed app did not become ready.");
+  assert.equal((await fetch(`${base}/properties`)).status, 200, "Public property catalogue must render.");
+  assert.equal((await fetch(`${base}/api/geocode?q=Bengaluru`)).status, 403, "Office address lookup must require administrator access.");
   assert.equal((await fetch(`${base}/dashboard`, { redirect: "manual" })).status, 307, "Workspace must require Supabase Auth.");
   assert.equal((await fetch(`${base}/api/uploads`, {
     method: "POST",

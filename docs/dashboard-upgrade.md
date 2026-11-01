@@ -1,5 +1,9 @@
 # Dashboard upgrade
 
+For current public/private visibility and the newer map editor, also read
+[Marketplace setup](marketplace-setup.md). The marketplace upgrade supersedes
+the former private-only listing behaviour described below.
+
 The platform administrator and agency workspace now have separate navigation
 and overview content. Each navigation item opens a focused view rather than
 scrolling through every management form.
