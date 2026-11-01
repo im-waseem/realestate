@@ -8,7 +8,9 @@ const nextConfig: NextConfig = {
   },
   turbopack: {
     rules: {
-      "*.css": {
+      // Only the global Tailwind entry needs this loader. CSS Modules must
+      // keep Next.js native module processing and scoped class exports.
+      "globals.css": {
         loaders: ["@tailwindcss/turbopack"],
         as: "*.css",
       },

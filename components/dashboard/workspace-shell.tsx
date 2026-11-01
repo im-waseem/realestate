@@ -2,6 +2,8 @@
 
 import { createContext, useContext, useEffect, useSyncExternalStore, type ReactNode } from "react";
 
+import styles from "./workspace.module.css";
+
 const View = createContext("overview");
 const sections = new Set(["overview", "agencies", "agency-details", "inventory", "leads", "team", "activity"]);
 function currentView() {
@@ -19,7 +21,7 @@ export function WorkspaceShell({ children, allowedViews }: { children: ReactNode
   useEffect(() => {
     if (window.location.hash) document.getElementById(view)?.focus({ preventScroll: true });
   }, [view]);
-  return <View.Provider value={view}><div className="dashboard-shell workspace-redesign">{children}</div></View.Provider>;
+  return <View.Provider value={view}><div className={`dashboard-shell workspace-redesign ${styles.shell}`}>{children}</div></View.Provider>;
 }
 
 export function WorkspaceSection({ id, children, className = "" }: { id: string; children: ReactNode; className?: string }) {

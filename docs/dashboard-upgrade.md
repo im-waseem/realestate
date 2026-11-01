@@ -61,3 +61,25 @@ configuration. Live sign-in, agency approvals, mutations and Storage uploads
 must be verified against your configured project after applying the migration.
 The existing smoke test also requires that configuration; its SQL text assertions
 alone do not establish live RLS behavior.
+
+## Dashboard visual refresh
+
+The workspace now uses an explicitly imported CSS Module with a dark sidebar,
+full-width responsive content, icon-based metric cards, and clear primary and
+secondary actions. The custom Tailwind loader runs only on `globals.css`;
+CSS Modules use Next.js native processing. This also restores the enquiry
+table's scoped styles.
+
+Save buttons show a spinner and disable during submission. Destructive actions
+open a styled confirmation dialog with cancel focus, Escape dismissal, and a
+separate confirmation step. Button hover/press effects, section transitions,
+metric entrances, and inventory bars respect reduced-motion preferences.
+
+After pulling this revision, **stop and restart the development server** because
+`next.config.ts` has changed. Then reload the dashboard. Keep the Supabase
+configuration and summary migration from the earlier upgrade.
+
+The visual refresh was browser-tested with fictional data using the dashboard
+CSS emitted by Next.js, including pending save/delete states and confirmation
+focus/cancellation. Compilation and TypeScript pass without stylesheet
+warnings; full production build still requires the missing Supabase settings.

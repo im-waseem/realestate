@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { SubmitButton } from "@/components/dashboard/submit-button";
 import { SearchableCollection } from "@/components/dashboard/searchable-collection";
 import { WorkspaceShell, WorkspaceSection, WorkspaceNavLink } from "@/components/dashboard/workspace-shell";
 import { redirect } from "next/navigation";
@@ -32,7 +33,7 @@ const ENQUIRIES_PER_PAGE = 10;
 function Metric({ label, value, detail }: { label: string; value: number; detail: string }) {
   return (
     <article className="panel dashboard-metric">
-      <p className="dashboard-metric-label">{label}</p>
+      <p className="dashboard-metric-label"><span className="metric-icon"><SidebarIcon name={label.includes("agenc") || label === "Agencies" ? "agencies" : label.includes("enquiries") ? "leads" : label.includes("Team") ? "team" : "properties"} /></span>{label}</p>
       <strong className="dashboard-metric-value">{value}</strong>
       <p className="dashboard-metric-detail">{detail}</p>
     </article>
@@ -101,7 +102,7 @@ function AgencyDetails({
             <label>Longitude<input name="lng" type="number" min="-180" max="180" step="any" defaultValue={agency.lng ?? ""} /></label>
           </div>
           <small>Enter both map coordinates or leave both blank. This map appears only inside the dashboard.</small>
-          <button className="btn small">Save agency details</button>
+          <SubmitButton className="btn small">Save agency details</SubmitButton>
         </form>
       )}
     </div>
@@ -115,6 +116,7 @@ function SidebarIcon({ name }: { name: string }) {
     properties: <><path d="m3 10 9-7 9 7" /><path d="M5 9v12h14V9M9 21v-7h6v7" /></>,
     leads: <><path d="M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="10" cy="7" r="4" /><path d="M20 8v6m3-3h-6" /></>,
     team: <><path d="M16 21v-2a4 4 0 0 0-3-3.87" /><path d="M8 21v-2a4 4 0 0 1 4-4h1" /><circle cx="9" cy="7" r="4" /><path d="M18 8a4 4 0 0 1 0 8" /></>,
+    logout: <><path d="M10 4H4v16h6M14 8l4 4-4 4M8 12h10" /></>,
     activity: <><path d="M3 12h4l3-8 4 16 3-8h4" /></>,
   };
 
@@ -230,7 +232,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
           <Link className="dashboard-sidebar-public" href="/">View public website</Link>
           <form action={logout}>
             <button className="dashboard-sidebar-signout" type="submit">
-              <span aria-hidden="true">↗</span> Sign out
+              <SidebarIcon name="logout" /> Sign out
             </button>
           </form>
         </div>
@@ -252,7 +254,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
                 : `${agencyName || "Your agency"} · Manage your listings, customer enquiries, and team in one place.`}
             </p>
           </div>
-          <Link className="btn" href="/dashboard/properties/new">+ Add property</Link>
+          <div className="hero-actions"><Link className="btn workspace-secondary" href="/dashboard/leads/new">+ Add enquiry</Link><Link className="btn" href="/dashboard/properties/new">+ Add property</Link></div>
         </section>
 
 
@@ -336,9 +338,9 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
                       <form action={setAgencyStatus}>
                         <input type="hidden" name="agency_id" value={agency.id} />
                         <input type="hidden" name="status" value={agency.status === "active" ? "suspended" : "active"} />
-                        <button className="btn small">
+                        <SubmitButton className="btn small" pendingLabel="Updating access…">
                           {agency.status === "pending" ? "Approve agency" : agency.status === "suspended" ? "Reactivate agency" : "Suspend agency"}
-                        </button>
+                        </SubmitButton>
                       </form>
                       <form action={deleteAgency}>
                         <input type="hidden" name="agency_id" value={agency.id} />
@@ -408,7 +410,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
                               <option value="" disabled>Change status</option>
                               {["published", "sold", "rented", "withdrawn"].map((status) => <option key={status}>{status}</option>)}
                             </select>
-                            <button className="btn small">Save</button>
+                            <SubmitButton className="btn small">Save</SubmitButton>
                           </form>
                         </div>
                       )}
@@ -483,7 +485,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
                       <label>Email<input name="email" type="email" defaultValue={member.email} maxLength={254} required /></label>
                       {isSuperAdmin && <label>Role<select name="role" defaultValue={member.role === "agency_admin" ? "agency_admin" : "agent"}><option value="agent">Agent</option><option value="agency_admin">Agency admin</option></select></label>}
                       {!isSuperAdmin && <input type="hidden" name="role" value="agent" />}
-                      <button className="btn small">Save team member</button>
+                      <SubmitButton className="btn small">Save team member</SubmitButton>
                     </form></details>}
                     {(isSuperAdmin || (user.role === "agency_admin" && member.role === "agent")) && <form action={deleteStaff}>
                       <input type="hidden" name="id" value={member.id} />
@@ -503,7 +505,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
                 <label>Name<input name="name" required maxLength={100} /></label>
                 <label>Email<input name="email" type="email" required /></label>
                 <label>Initial password<input type="password" name="password" minLength={12} maxLength={128} required /></label>
-                <button className="btn">{isSuperAdmin ? "Create user account" : "Create agent account"}</button>
+                <SubmitButton className="btn" pendingLabel="Creating account…">{isSuperAdmin ? "Create user account" : "Create agent account"}</SubmitButton>
               </form>
             )}
           </div>
