@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PhotoInput } from "@/components/photo-input";
 import { saveProperty } from "@/app/actions";
@@ -94,10 +95,11 @@ export default async function Editor({
   return (
     <>
       <PlatformHeader />
-      <main className="workspace editor">
+      <main className={`workspace editor ${isSuperAdmin ? "platform-workspace" : "agency-workspace"}`}>
         <p className="kicker">PROPERTY MANAGEMENT</p>
         <h1>{property ? "Edit" : "Add a"} <em>property.</em></h1>
         <p className="muted">{isSuperAdmin ? "Main admin access: manage listings for any agency." : "Sale, rent, and lease listings stay in your agency workspace."}</p>
+        <p className="property-import-prompt">Working from an existing spreadsheet? <Link href="/dashboard/import?kind=properties">Import property listings from Excel</Link>.</p>
         <Notice message={query.message} />
 
         <form action={saveProperty} className="panel stack">
@@ -171,6 +173,16 @@ export default async function Editor({
             {numberField("lng", "Longitude", -180, 180, true, "any")}
           </div>
           <small>Exact address and coordinates are available only to authorized workspace users.</small>
+
+        <fieldset className="property-form-group owner-contact-group">
+          <legend>Property owner contact — private</legend>
+          <p className="muted">These details identify the owner or landlord for this listing. They are kept out of the public listing and separate from buyer or renter enquiries.</p>
+          <div className="form-grid">
+            <label>Owner name<input name="owner_name" defaultValue={property?.owner_name || ""} maxLength={100} /></label>
+            <label>Owner mobile<input name="owner_phone" type="tel" defaultValue={property?.owner_phone || ""} maxLength={25} /></label>
+            <label>Owner email (optional)<input name="owner_email" type="email" defaultValue={property?.owner_email || ""} maxLength={254} /></label>
+          </div>
+        </fieldset>
 
           <label>
             Property description

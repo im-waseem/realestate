@@ -10,7 +10,9 @@ admin, agency admin and agent workspaces. Use Node.js **22.13 or later**.
    `sql/schema.postgres.sql`; existing databases apply the migrations in order.
 3. Set `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` and
    server-only `SUPABASE_SERVICE_ROLE_KEY` securely in `.env.local` or deployment
-   settings. Never commit API keys or prefix the service key with `NEXT_PUBLIC_`.
+  settings. Set `NEXT_PUBLIC_SITE_URL` to the deployed site origin if QR codes
+  should always use a canonical domain. Never commit API keys or prefix the
+  service key with `NEXT_PUBLIC_`.
 4. Install and run:
 
    ```sh
@@ -45,6 +47,18 @@ removed from the dashboard UI.
 - `sql/migrations/20261101_dashboard_summary.sql`: existing dashboard upgrade.
 - `sql/migrations/20261102_marketplace_and_agency_map.sql`: combined marketplace,
   enquiry and agency-map upgrade for an existing database.
+- `sql/migrations/20261103_service_provider_directory.sql`: private, agency-owned
+  directory for local tradespeople such as plumbers and electricians.
+- `sql/migrations/20261104_walk_in_enquiries.sql`: optional email, client area, and
+  enquiry source for manual customer enquiries.
+- `sql/migrations/20261105_property_owner_contacts.sql`: private owner name and
+  contact fields on property listings.
+- `sql/migrations/20261106_flexible_service_providers_and_lead_ids.sql`: custom
+  local service categories and a generated id default for enquiries.
+- `sql/migrations/20261107_agency_qr_enquiries.sql`: agency QR pages and
+  rate-limited public enquiry capture.
+- `sql/migrations/20261108_service_provider_crud_access.sql`: agency-scoped
+  provider create, read, update, and delete access.
 - `sql/modules/`: separate feature SQL files for review; use the combined
   migration to install atomically.
 - `sql/provision-super-admin.postgres.sql`: edit the example email and run for

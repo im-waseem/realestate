@@ -8,6 +8,7 @@ import styles from "./enquiry-item.module.css";
 
 const stages = ["new", "contacted", "visit scheduled", "negotiating", "closed", "lost"];
 const intents = ["buy", "sell", "rent", "lease"];
+const sources = [["walk_in", "Walk-in"], ["phone", "Phone call"], ["website", "Website"], ["referral", "Referral"], ["other", "Other"]];
 
 const statusBadge: Record<string, string> = {
   new: "badgeNew",
@@ -113,7 +114,7 @@ export function EnquiryDialog({ lead, open, onClose }: EnquiryDialogProps) {
 
       <div className={styles.contact}>
         <a href={`tel:${lead.phone}`}>{lead.phone}</a>
-        <a href={`mailto:${lead.email}`}>{lead.email}</a>
+        {lead.email && <a href={`mailto:${lead.email}`}>{lead.email}</a>}
       </div>
       <div className={styles.detailsTags}>
         <span className={`${styles.badge} ${styles.badgeIntent}`}>{lead.intent}</span>
@@ -121,6 +122,8 @@ export function EnquiryDialog({ lead, open, onClose }: EnquiryDialogProps) {
           {lead.status}
         </span>
       </div>
+      {lead.client_address && <p className={styles.requirements}><strong>Client area:</strong> {lead.client_address}</p>}
+      <p className={styles.notes}><strong>Source:</strong> {sources.find(([value]) => value === lead.source)?.[1] || "Other"}</p>
       <p className={styles.requirements}>{lead.requirements}</p>
       {lead.notes && <p className={styles.notes}><strong>Internal notes:</strong> {lead.notes}</p>}
 
@@ -129,8 +132,10 @@ export function EnquiryDialog({ lead, open, onClose }: EnquiryDialogProps) {
         <label>Customer name<input name="name" defaultValue={lead.name} maxLength={100} required /></label>
         <div className={styles.formGrid}>
           <label>Phone<input name="phone" type="tel" defaultValue={lead.phone} maxLength={25} required /></label>
-          <label>Email<input name="email" type="email" defaultValue={lead.email} maxLength={254} required /></label>
+          <label>Email (optional)<input name="email" type="email" defaultValue={lead.email} maxLength={254} /></label>
         </div>
+        <label>Client area or address<input name="client_address" defaultValue={lead.client_address} maxLength={500} /></label>
+        <label>Enquiry source<select name="source" defaultValue={lead.source}>{sources.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
         <label>Looking to<select name="intent" defaultValue={lead.intent}>{intents.map((intent) => <option key={intent}>{intent}</option>)}</select></label>
         <label>Requirements<textarea name="requirements" defaultValue={lead.requirements} maxLength={2000} required /></label>
         <label>Progress<select name="status" defaultValue={lead.status}>{stages.map((stage) => <option key={stage}>{stage}</option>)}</select></label>

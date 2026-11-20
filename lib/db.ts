@@ -2,8 +2,19 @@ export type Agency = {
   id: string;
   name: string;
   status: string;
+  contact_name: string;
+  contact_email: string;
   phone: string;
+  whatsapp: string;
+  website: string;
+  registration_number: string;
   address: string;
+  city: string;
+  state: string;
+  postal_code: string;
+  service_areas: string;
+  working_hours: string;
+  description: string;
   lat: number | null;
   lng: number | null;
   user_count: number;
@@ -46,6 +57,9 @@ export type Property = {
   locality: string;
   city: string;
   address: string;
+  owner_name: string;
+  owner_phone: string;
+  owner_email: string;
   lat: number;
   lng: number;
   description: string;
@@ -66,6 +80,8 @@ export type Lead = {
   name: string;
   phone: string;
   email: string;
+  client_address: string;
+  source: string;
   intent: string;
   requirements: string;
   status: string;
@@ -73,4 +89,19 @@ export type Lead = {
   agency_id: string;
   property_id?: string | null;
   created_at?: string;
+};
+
+export type ServiceProvider = {
+  id: string;
+  agency_id: string;
+  name: string;
+  category: string;
+  phone: string;
+  email: string;
+  service_area: string;
+  address: string;
+  notes: string;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
 };

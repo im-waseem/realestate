@@ -38,7 +38,10 @@ export default async function AgencyProperties() {
             <h1>My <em>properties.</em></h1>
             <p className="muted">Only properties managed by your agency appear here.</p>
           </div>
-          <Link className="btn" href="/dashboard/properties/new">+ Add property</Link>
+          <div className="property-page-actions">
+            <Link className="btn workspace-secondary" href="/dashboard/import?kind=properties">Import from Excel</Link>
+            <Link className="btn" href="/dashboard/properties/new">+ Add property</Link>
+          </div>
         </div>
         <div className="table-wrap panel">
           <table>

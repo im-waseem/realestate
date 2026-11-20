@@ -9,8 +9,19 @@ export type Agency = {
   id: string;
   name: string;
   status: string;
+  contact_name: string;
+  contact_email: string;
   phone: string;
+  whatsapp: string;
+  website: string;
+  registration_number: string;
   address: string;
+  city: string;
+  state: string;
+  postal_code: string;
+  service_areas: string;
+  working_hours: string;
+  description: string;
   lat: number | null;
   lng: number | null;
   created_at: string;
@@ -38,6 +49,9 @@ export type Property = {
   locality: string;
   city: string;
   address: string;
+  owner_name: string;
+  owner_phone: string;
+  owner_email: string;
   lat: number;
   lng: number;
   description: string;
@@ -60,10 +74,26 @@ export type Lead = {
   name: string;
   phone: string;
   email: string;
+  client_address: string;
+  source: "walk_in" | "phone" | "website" | "referral" | "other";
   intent: string;
   requirements: string;
   status: string;
   notes: string;
+  created_at: string;
+};
+
+export type ServiceProvider = {
+  id: string;
+  agency_id: string;
+  name: string;
+  category: string;
+  phone: string;
+  email: string;
+  service_area: string;
+  address: string;
+  notes: string;
+  is_active: boolean;
   created_at: string;
 };
 
@@ -88,6 +118,7 @@ export interface Database {
       profiles: Table<Profile>;
       properties: Table<Property>;
       leads: Table<Lead>;
+      service_providers: Table<ServiceProvider>;
       activity: Table<Activity>;
       uploads: Table<Upload>;
     };
@@ -98,7 +129,9 @@ export interface Database {
         Returns: PublicProperty[];
       };
       realty_public_photo_allowed: { Args: { photo_name: string }; Returns: boolean };
+      realty_public_agency: { Args: { target_agency_id: string }; Returns: { id: string; name: string; phone: string; address: string; lat: number | null; lng: number | null }[] };
       realty_submit_public_enquiry: { Args: { target_id: string; customer_name: string; customer_phone: string; customer_email: string; customer_message: string }; Returns: undefined };
+      realty_submit_agency_enquiry: { Args: { target_agency_id: string; customer_name: string; customer_phone: string; customer_email: string; enquiry_intent: string; customer_message: string }; Returns: undefined };
 
       realty_dashboard_summary: {
         Args: Record<string, never>;

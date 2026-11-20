@@ -1,14 +1,25 @@
 -- Supabase/PostgreSQL schema for Auth-backed role-based APIs.
 -- Run the complete file in the Supabase SQL editor as postgres.
--- Public API reads of agency contact details are intentionally prohibited.
+-- Public API returns only active agencies' basic contact details for QR pages.
 BEGIN;
 
 CREATE TABLE IF NOT EXISTS public.agencies (
   id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   name TEXT NOT NULL CHECK (length(btrim(name)) BETWEEN 2 AND 150),
   status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'suspended')),
+  contact_name TEXT NOT NULL DEFAULT '' CHECK (length(contact_name) <= 100),
+  contact_email TEXT NOT NULL DEFAULT '' CHECK (contact_email = '' OR (length(contact_email) <= 254 AND contact_email ~ '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$')),
   phone TEXT NOT NULL DEFAULT '',
+  whatsapp TEXT NOT NULL DEFAULT '' CHECK (whatsapp = '' OR whatsapp ~ '^[+0-9 ()-]{7,25}$'),
+  website TEXT NOT NULL DEFAULT '' CHECK (length(website) <= 300),
+  registration_number TEXT NOT NULL DEFAULT '' CHECK (length(registration_number) <= 100),
   address TEXT NOT NULL DEFAULT '',
+  city TEXT NOT NULL DEFAULT '' CHECK (length(city) <= 100),
+  state TEXT NOT NULL DEFAULT '' CHECK (length(state) <= 100),
+  postal_code TEXT NOT NULL DEFAULT '' CHECK (length(postal_code) <= 20),
+  service_areas TEXT NOT NULL DEFAULT '' CHECK (length(service_areas) <= 1000),
+  working_hours TEXT NOT NULL DEFAULT '' CHECK (length(working_hours) <= 300),
+  description TEXT NOT NULL DEFAULT '' CHECK (length(description) <= 2000),
   lat DOUBLE PRECISION,
   lng DOUBLE PRECISION,
   created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -47,6 +58,9 @@ CREATE TABLE IF NOT EXISTS public.properties (
   locality TEXT NOT NULL,
   city TEXT NOT NULL,
   address TEXT NOT NULL,
+  owner_name TEXT NOT NULL DEFAULT '' CHECK (length(owner_name) <= 100),
+  owner_phone TEXT NOT NULL DEFAULT '' CHECK (owner_phone = '' OR owner_phone ~ '^[+0-9 ()-]{7,25}$'),
+  owner_email TEXT NOT NULL DEFAULT '' CHECK (owner_email = '' OR (length(owner_email) <= 254 AND owner_email ~ '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$')),
   lat DOUBLE PRECISION NOT NULL CHECK (lat BETWEEN -90 AND 90),
   lng DOUBLE PRECISION NOT NULL CHECK (lng BETWEEN -180 AND 180),
   description TEXT NOT NULL,
@@ -69,13 +83,33 @@ CREATE TABLE IF NOT EXISTS public.leads (
   property_id TEXT REFERENCES public.properties(id) ON DELETE RESTRICT,
   name TEXT NOT NULL CHECK (length(btrim(name)) BETWEEN 1 AND 100),
   phone TEXT NOT NULL,
-  email TEXT NOT NULL,
+  email TEXT NOT NULL DEFAULT '',
+  client_address TEXT NOT NULL DEFAULT '',
+  source TEXT NOT NULL DEFAULT 'other' CHECK (source IN ('walk_in', 'phone', 'website', 'referral', 'other')),
   intent TEXT NOT NULL CHECK (intent IN ('buy', 'sell', 'rent', 'lease')),
   requirements TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'new' CHECK (status IN ('new', 'contacted', 'visit scheduled', 'negotiating', 'closed', 'lost')),
   notes TEXT NOT NULL DEFAULT '',
   created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS public.service_providers (
+  id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+  agency_id TEXT NOT NULL REFERENCES public.agencies(id) ON DELETE RESTRICT,
+  name TEXT NOT NULL CHECK (length(btrim(name)) BETWEEN 2 AND 100),
+  category TEXT NOT NULL CHECK (length(btrim(category)) BETWEEN 2 AND 60),
+  phone TEXT NOT NULL CHECK (phone ~ '^[+0-9 ()-]{7,25}$'),
+  email TEXT NOT NULL DEFAULT '' CHECK (length(email) <= 254),
+  service_area TEXT NOT NULL CHECK (length(btrim(service_area)) BETWEEN 2 AND 200),
+  address TEXT NOT NULL DEFAULT '' CHECK (length(address) <= 500),
+  notes TEXT NOT NULL DEFAULT '' CHECK (length(notes) <= 2000),
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+COMMENT ON COLUMN public.service_providers.category IS
+  'Agency-selected trade or property service; kept as flexible text so service types can evolve without schema changes.';
+CREATE INDEX IF NOT EXISTS service_providers_agency_category_idx
+  ON public.service_providers (agency_id, category, name);
 
 CREATE TABLE IF NOT EXISTS public.activity (
   id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
@@ -100,6 +134,17 @@ CREATE TABLE IF NOT EXISTS public.server_rate_limits (
 -- Upgrade databases created from the earlier schema before defining views/policies.
 ALTER TABLE public.agencies ADD COLUMN IF NOT EXISTS phone TEXT NOT NULL DEFAULT '';
 ALTER TABLE public.agencies ADD COLUMN IF NOT EXISTS address TEXT NOT NULL DEFAULT '';
+ALTER TABLE public.agencies ADD COLUMN IF NOT EXISTS contact_name TEXT NOT NULL DEFAULT '';
+ALTER TABLE public.agencies ADD COLUMN IF NOT EXISTS contact_email TEXT NOT NULL DEFAULT '';
+ALTER TABLE public.agencies ADD COLUMN IF NOT EXISTS whatsapp TEXT NOT NULL DEFAULT '';
+ALTER TABLE public.agencies ADD COLUMN IF NOT EXISTS website TEXT NOT NULL DEFAULT '';
+ALTER TABLE public.agencies ADD COLUMN IF NOT EXISTS registration_number TEXT NOT NULL DEFAULT '';
+ALTER TABLE public.agencies ADD COLUMN IF NOT EXISTS city TEXT NOT NULL DEFAULT '';
+ALTER TABLE public.agencies ADD COLUMN IF NOT EXISTS state TEXT NOT NULL DEFAULT '';
+ALTER TABLE public.agencies ADD COLUMN IF NOT EXISTS postal_code TEXT NOT NULL DEFAULT '';
+ALTER TABLE public.agencies ADD COLUMN IF NOT EXISTS service_areas TEXT NOT NULL DEFAULT '';
+ALTER TABLE public.agencies ADD COLUMN IF NOT EXISTS working_hours TEXT NOT NULL DEFAULT '';
+ALTER TABLE public.agencies ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT '';
 ALTER TABLE public.agencies ADD COLUMN IF NOT EXISTS lat DOUBLE PRECISION;
 ALTER TABLE public.agencies ADD COLUMN IF NOT EXISTS lng DOUBLE PRECISION;
 ALTER TABLE public.agencies ALTER COLUMN status SET DEFAULT 'pending';
@@ -112,6 +157,39 @@ ALTER TABLE public.properties ADD COLUMN IF NOT EXISTS age_years INTEGER;
 
 DO $constraints$
 BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'public.agencies'::regclass AND conname = 'agencies_contact_name_length') THEN
+    ALTER TABLE public.agencies ADD CONSTRAINT agencies_contact_name_length CHECK (length(contact_name) <= 100) NOT VALID;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'public.agencies'::regclass AND conname = 'agencies_contact_email_format') THEN
+    ALTER TABLE public.agencies ADD CONSTRAINT agencies_contact_email_format CHECK (contact_email = '' OR (length(contact_email) <= 254 AND contact_email ~ '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$')) NOT VALID;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'public.agencies'::regclass AND conname = 'agencies_whatsapp_format') THEN
+    ALTER TABLE public.agencies ADD CONSTRAINT agencies_whatsapp_format CHECK (whatsapp = '' OR whatsapp ~ '^[+0-9 ()-]{7,25}$') NOT VALID;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'public.agencies'::regclass AND conname = 'agencies_website_length') THEN
+    ALTER TABLE public.agencies ADD CONSTRAINT agencies_website_length CHECK (length(website) <= 300) NOT VALID;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'public.agencies'::regclass AND conname = 'agencies_registration_number_length') THEN
+    ALTER TABLE public.agencies ADD CONSTRAINT agencies_registration_number_length CHECK (length(registration_number) <= 100) NOT VALID;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'public.agencies'::regclass AND conname = 'agencies_city_length') THEN
+    ALTER TABLE public.agencies ADD CONSTRAINT agencies_city_length CHECK (length(city) <= 100) NOT VALID;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'public.agencies'::regclass AND conname = 'agencies_state_length') THEN
+    ALTER TABLE public.agencies ADD CONSTRAINT agencies_state_length CHECK (length(state) <= 100) NOT VALID;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'public.agencies'::regclass AND conname = 'agencies_postal_code_length') THEN
+    ALTER TABLE public.agencies ADD CONSTRAINT agencies_postal_code_length CHECK (length(postal_code) <= 20) NOT VALID;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'public.agencies'::regclass AND conname = 'agencies_service_areas_length') THEN
+    ALTER TABLE public.agencies ADD CONSTRAINT agencies_service_areas_length CHECK (length(service_areas) <= 1000) NOT VALID;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'public.agencies'::regclass AND conname = 'agencies_working_hours_length') THEN
+    ALTER TABLE public.agencies ADD CONSTRAINT agencies_working_hours_length CHECK (length(working_hours) <= 300) NOT VALID;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'public.agencies'::regclass AND conname = 'agencies_description_length') THEN
+    ALTER TABLE public.agencies ADD CONSTRAINT agencies_description_length CHECK (length(description) <= 2000) NOT VALID;
+  END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'public.agencies'::regclass AND conname = 'agencies_location_pair') THEN
     ALTER TABLE public.agencies ADD CONSTRAINT agencies_location_pair CHECK ((lat IS NULL) = (lng IS NULL)) NOT VALID;
   END IF;
@@ -241,6 +319,7 @@ BEGIN
   END IF;
 
   DELETE FROM public.leads WHERE agency_id = target_agency_id;
+  DELETE FROM public.service_providers WHERE agency_id = target_agency_id;
   DELETE FROM public.properties WHERE agency_id = target_agency_id;
   DELETE FROM public.activity WHERE agency_id = target_agency_id;
   DELETE FROM public.uploads WHERE agency_id = target_agency_id;
@@ -340,6 +419,7 @@ ALTER TABLE public.agencies ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.properties ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.leads ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.service_providers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.activity ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.uploads ENABLE ROW LEVEL SECURITY;
 
@@ -498,6 +578,44 @@ USING (
   )
 );
 
+DROP POLICY IF EXISTS service_providers_read_workspace ON public.service_providers;
+CREATE POLICY service_providers_read_workspace ON public.service_providers
+FOR SELECT TO authenticated
+USING (
+  agency_id = (SELECT public.realty_current_agency_id())
+  AND public.realty_current_role() IN ('agency_admin', 'agent')
+  AND public.realty_agency_is_active(agency_id)
+);
+DROP POLICY IF EXISTS service_providers_insert_workspace ON public.service_providers;
+CREATE POLICY service_providers_insert_workspace ON public.service_providers
+FOR INSERT TO authenticated
+WITH CHECK (
+  agency_id = (SELECT public.realty_current_agency_id())
+  AND public.realty_current_role() IN ('agency_admin', 'agent')
+  AND public.realty_agency_is_active(agency_id)
+);
+DROP POLICY IF EXISTS service_providers_update_workspace ON public.service_providers;
+CREATE POLICY service_providers_update_workspace ON public.service_providers
+FOR UPDATE TO authenticated
+USING (
+  agency_id = (SELECT public.realty_current_agency_id())
+  AND public.realty_current_role() IN ('agency_admin', 'agent')
+  AND public.realty_agency_is_active(agency_id)
+)
+WITH CHECK (
+  agency_id = (SELECT public.realty_current_agency_id())
+  AND public.realty_current_role() IN ('agency_admin', 'agent')
+  AND public.realty_agency_is_active(agency_id)
+);
+DROP POLICY IF EXISTS service_providers_delete_workspace ON public.service_providers;
+CREATE POLICY service_providers_delete_workspace ON public.service_providers
+FOR DELETE TO authenticated
+USING (
+  agency_id = (SELECT public.realty_current_agency_id())
+  AND public.realty_current_role() IN ('agency_admin', 'agent')
+  AND public.realty_agency_is_active(agency_id)
+);
+
 DROP POLICY IF EXISTS activity_read_workspace ON public.activity;
 CREATE POLICY activity_read_workspace ON public.activity
 FOR SELECT TO authenticated
@@ -556,13 +674,14 @@ USING (
   AND public.realty_is_super_admin()
 );
 
-REVOKE ALL ON TABLE public.agencies, public.profiles, public.properties, public.leads, public.activity, public.uploads FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON TABLE public.agencies, public.profiles, public.properties, public.leads, public.service_providers, public.activity, public.uploads FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON TABLE public.server_rate_limits FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON TABLE public.agencies TO authenticated;
-GRANT INSERT, UPDATE (name, phone, address, lat, lng, status) ON TABLE public.agencies TO authenticated;
+GRANT INSERT, UPDATE (name, status, contact_name, contact_email, phone, whatsapp, website, registration_number, address, city, state, postal_code, service_areas, working_hours, description, lat, lng) ON TABLE public.agencies TO authenticated;
 GRANT SELECT, INSERT, UPDATE (name, email, role, agency_id), DELETE ON TABLE public.profiles TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.properties TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.leads TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.service_providers TO authenticated;
 GRANT INSERT ON TABLE public.leads TO authenticated;
 GRANT SELECT, INSERT ON TABLE public.activity TO authenticated;
 GRANT SELECT, INSERT ON TABLE public.uploads TO authenticated;
@@ -657,6 +776,51 @@ $$;
 REVOKE ALL ON FUNCTION public.realty_public_photo_allowed(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.realty_public_photo_allowed(TEXT) TO anon,authenticated;
 
+-- Public, limited agency details used by printed or displayed agency QR codes.
+CREATE OR REPLACE FUNCTION public.realty_public_agency(target_agency_id TEXT)
+RETURNS TABLE (id TEXT, name TEXT, phone TEXT, address TEXT, lat DOUBLE PRECISION, lng DOUBLE PRECISION)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+ SELECT a.id,a.name,a.phone,a.address,a.lat,a.lng
+ FROM public.agencies a
+ WHERE a.id=target_agency_id AND a.status='active';
+$$;
+REVOKE ALL ON FUNCTION public.realty_public_agency(TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.realty_public_agency(TEXT) TO anon,authenticated;
+COMMENT ON FUNCTION public.realty_public_agency(TEXT) IS
+  'Returns only an active agency contact projection for QR visitors; private workspace records are not exposed.';
+
+-- QR visitors can send an enquiry without an account. The RPC keeps rate limits
+-- and agency checks in PostgreSQL and exposes no direct write access to leads.
+CREATE OR REPLACE FUNCTION public.realty_submit_agency_enquiry(
+ target_agency_id TEXT, customer_name TEXT, customer_phone TEXT,
+ customer_email TEXT, enquiry_intent TEXT, customer_message TEXT
+) RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+DECLARE agency public.agencies%ROWTYPE;
+BEGIN
+ IF length(btrim(customer_name)) NOT BETWEEN 2 AND 100
+ OR customer_phone !~ '^[+0-9 ()-]{7,25}$'
+ OR (customer_email <> '' AND (customer_email !~ '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$' OR length(customer_email)>254))
+ OR enquiry_intent NOT IN ('buy','sell','rent','lease')
+ OR length(btrim(customer_message)) NOT BETWEEN 10 AND 2000 THEN
+   RAISE EXCEPTION 'Please check your contact details and requirements';
+ END IF;
+ SELECT a.* INTO agency FROM public.agencies a
+ WHERE a.id=target_agency_id AND a.status='active' FOR SHARE;
+ IF NOT FOUND THEN RAISE EXCEPTION 'This agency is unavailable'; END IF;
+ IF NOT public.realty_take_rate_limit('agency-qr-global',120,60)
+ OR NOT public.realty_take_rate_limit(
+   'agency-qr:'||md5(target_agency_id||COALESCE(NULLIF(lower(btrim(customer_email)),''),regexp_replace(customer_phone,'[^0-9]','','g'))),5,3600
+ )
+ OR NOT public.realty_take_rate_limit('agency-qr-phone:'||md5(target_agency_id||regexp_replace(customer_phone,'[^0-9]','','g')),3,3600) THEN
+   RAISE EXCEPTION 'Too many enquiries. Please try again later';
+ END IF;
+ INSERT INTO public.leads(id,agency_id,property_id,name,phone,email,client_address,source,intent,requirements,status)
+ VALUES(gen_random_uuid()::text,agency.id,NULL,btrim(customer_name),btrim(customer_phone),lower(btrim(customer_email)),'','website',enquiry_intent,btrim(customer_message),'new');
+END;
+$$;
+REVOKE ALL ON FUNCTION public.realty_submit_agency_enquiry(TEXT,TEXT,TEXT,TEXT,TEXT,TEXT) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.realty_submit_agency_enquiry(TEXT,TEXT,TEXT,TEXT,TEXT,TEXT) TO service_role;
+
 
 -- Called only by the application server. Never expose the service key to browsers.
 CREATE OR REPLACE FUNCTION public.realty_submit_public_enquiry(
@@ -676,8 +840,8 @@ BEGIN
  OR NOT public.realty_take_rate_limit('public-enquiry:'||md5(lower(btrim(customer_email))),3,3600)
  OR NOT public.realty_take_rate_limit('public-enquiry-phone:'||md5(regexp_replace(customer_phone,'[^0-9]','','g')),3,3600)
  THEN RAISE EXCEPTION 'Too many enquiries. Please try again later'; END IF;
- INSERT INTO public.leads(agency_id,property_id,name,phone,email,intent,requirements,status)
- VALUES(listing.agency_id,listing.id,btrim(customer_name),btrim(customer_phone),lower(btrim(customer_email)),
+ INSERT INTO public.leads(agency_id,property_id,name,phone,email,client_address,source,intent,requirements,status)
+ VALUES(listing.agency_id,listing.id,btrim(customer_name),btrim(customer_phone),lower(btrim(customer_email)),'','website',
  CASE WHEN listing.intent='sale' THEN 'buy' ELSE listing.intent END,btrim(customer_message),'new');
 END;
 $$;

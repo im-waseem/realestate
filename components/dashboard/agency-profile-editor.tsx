@@ -5,6 +5,7 @@ import { useState } from "react";
 import { updateAgencyProfile } from "@/app/actions";
 import { SubmitButton } from "./submit-button";
 import styles from "./agency-profile-editor.module.css";
+import type { Agency } from "@/lib/db";
 
 type LocationResult = { display_name: string; lat: string; lon: string };
 const project = (lat: number, lng: number, zoom: number) => {
@@ -16,8 +17,11 @@ const unproject = (x: number, y: number, zoom: number) => {
   return { lng: Math.max(-180, Math.min(180, x / size * 360 - 180)), lat: Math.max(-85, Math.min(85, Math.atan(Math.sinh(Math.PI * (1 - 2 * y / size))) * 180 / Math.PI)) };
 };
 
-export function AgencyProfileEditor({ agency, superAdmin = false }: { agency: { id: string; name: string; phone: string; address: string; lat: number | null; lng: number | null }; superAdmin?: boolean }) {
+export function AgencyProfileEditor({ agency, superAdmin = false }: { agency: Agency; superAdmin?: boolean }) {
   const [address, setAddress] = useState(agency.address);
+  const [city, setCity] = useState(agency.city || "");
+  const [stateName, setStateName] = useState(agency.state || "");
+  const [postalCode, setPostalCode] = useState(agency.postal_code || "");
   const [lat, setLat] = useState(agency.lat === null ? "" : String(agency.lat));
   const [lng, setLng] = useState(agency.lng === null ? "" : String(agency.lng));
   const [confirmed, setConfirmed] = useState(true);
@@ -31,7 +35,8 @@ export function AgencyProfileEditor({ agency, superAdmin = false }: { agency: { 
   async function findAddress() {
     setSearching(true); setMessage(""); setResults([]);
     try {
-      const response = await fetch(`/api/geocode?q=${encodeURIComponent(address)}`);
+      const lookupAddress = [address, city, stateName, postalCode].filter(Boolean).join(", ");
+      const response = await fetch(`/api/geocode?q=${encodeURIComponent(lookupAddress)}`);
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "Address lookup unavailable.");
       setResults(data);
@@ -40,12 +45,23 @@ export function AgencyProfileEditor({ agency, superAdmin = false }: { agency: { 
     finally { setSearching(false); }
   }
   return <form action={updateAgencyProfile} className={`stack agency-profile-form ${styles.editor}`}>
-    <p className="kicker">BUSINESS PROFILE & OFFICE LOCATION</p>
+    <p className="kicker">AGENCY PROFILE & OFFICE LOCATION</p>
     {superAdmin && <input type="hidden" name="agency_id" value={agency.id} />}
     <input type="hidden" name="location_confirmed" value={confirmed ? "yes" : "no"} />
     <label>Agency name<input name="name" defaultValue={agency.name} maxLength={150} required /></label>
+    <label>Primary contact name<input name="contact_name" defaultValue={agency.contact_name || ""} maxLength={100} required /></label>
+    <label>Business email<input name="contact_email" type="email" defaultValue={agency.contact_email || ""} maxLength={254} required /></label>
     <label>Phone<input name="phone" type="tel" defaultValue={agency.phone} maxLength={25} required /></label>
+    <label>WhatsApp number<input name="whatsapp" type="tel" defaultValue={agency.whatsapp || ""} maxLength={25} /></label>
+    <label>Website<input name="website" type="url" defaultValue={agency.website || ""} maxLength={300} placeholder="https://example.com" /></label>
+    <label>Registration / RERA number<input name="registration_number" defaultValue={agency.registration_number || ""} maxLength={100} /></label>
     <label className={styles.wide}>Office address<input name="address" value={address} maxLength={500} required onChange={event => { setAddress(event.target.value); setConfirmed(false); setResults([]); }} /></label>
+    <label>City<input name="city" value={city} maxLength={100} required onChange={event => { setCity(event.target.value); setConfirmed(false); setResults([]); }} /></label>
+    <label>State<input name="state" value={stateName} maxLength={100} required onChange={event => { setStateName(event.target.value); setConfirmed(false); setResults([]); }} /></label>
+    <label>Postal code<input name="postal_code" value={postalCode} maxLength={20} onChange={event => { setPostalCode(event.target.value); setConfirmed(false); setResults([]); }} /></label>
+    <label className={styles.wide}>Areas served<input name="service_areas" defaultValue={agency.service_areas || ""} maxLength={1000} placeholder="e.g. Whitefield, Sarjapur Road, East Bengaluru" /></label>
+    <label className={styles.wide}>Working hours<input name="working_hours" defaultValue={agency.working_hours || ""} maxLength={300} placeholder="e.g. Monday–Saturday, 9:30 AM–6:00 PM" /></label>
+    <label className={styles.wide}>About the agency<textarea name="description" defaultValue={agency.description || ""} maxLength={2000} rows={4} placeholder="A short introduction to your agency and the services you offer." /></label>
     <div className={styles.wide}><button type="button" className="btn workspace-secondary" disabled={searching || address.trim().length < 3} onClick={findAddress}>{searching ? "Finding address…" : "Find address on map"}</button><p className="muted">Click the map to place the pin. Use + / − to zoom, or arrow keys to adjust the pin.</p></div>
     {results.length > 0 && <ul className={styles.results}>{results.map(result => <li key={`${result.lat},${result.lon}`}><button type="button" onClick={() => { setAddress(result.display_name.slice(0,500)); selectLocation(Number(result.lat),Number(result.lon)); setZoom(15); setResults([]); }}>{result.display_name}</button></li>)}</ul>}
     <div className={styles.map} role="button" tabIndex={0} aria-label="Office location map. Click to place a pin or use arrow keys to adjust it."

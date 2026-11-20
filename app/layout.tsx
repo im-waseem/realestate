@@ -26,12 +26,12 @@ export const metadata: Metadata = {
   formatDetection: { telephone: false },
 };
 
-export const viewport: Viewport = { width: "device-width", initialScale: 1, themeColor: "#203f35" };
+export const viewport: Viewport = { width: "device-width", initialScale: 1, themeColor: "#103b36" };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en-IN" className={inter.variable}>
-      <body>{children}</body>
+      <body className="app-body">{children}</body>
     </html>
   );
 }

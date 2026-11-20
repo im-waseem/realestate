@@ -49,6 +49,12 @@ function email(form: FormData) {
   return value;
 }
 
+function optionalEmail(form: FormData) {
+  const value = optionalField(form, "email", 254).toLowerCase();
+  if (value && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) throw new Error("Enter a valid email address.");
+  return value;
+}
+
 function password(form: FormData) {
   const value = field(form, "password", 128);
   if (value.length < 12) throw new Error("Use at least 12 characters for the password.");
@@ -57,6 +63,11 @@ function password(form: FormData) {
 
 function fail(path: string, error: unknown): never {
   redirect(`${path}?message=${encodeURIComponent(error instanceof Error ? error.message : "Unable to save. Please try again.")}`);
+}
+
+function failServiceProvider(path: string, error: unknown): never {
+  const message = encodeURIComponent(error instanceof Error ? error.message : "Unable to save. Please try again.");
+  redirect(path === "/dashboard/services" ? `${path}?message=${message}` : `/dashboard?message=${message}#services`);
 }
 
 function throwIfError(error: { message: string } | null) {
@@ -169,6 +180,8 @@ export async function register(form: FormData) {
       id: agencyId,
       name: agencyName,
       status: "pending",
+      contact_name: name,
+      contact_email: emailAddress,
       phone,
       address,
       lat,
@@ -218,10 +231,13 @@ export async function createLead(form: FormData) {
     const phone = field(form, "phone", 25);
     if (!/^[+\d ()-]{7,25}$/.test(phone)) throw new Error("Enter a valid phone number.");
     const { error } = await supabase.from("leads").insert({
+      id: randomUUID(),
       agency_id: agencyId,
       name,
       phone,
-      email: email(form),
+      email: optionalEmail(form),
+      client_address: optionalField(form, "client_address", 500),
+      source: choice(form, "source", ["walk_in", "phone", "website", "referral", "other"] as const),
       intent: choice(form, "intent", ["buy", "sell", "rent", "lease"]),
       requirements: field(form, "requirements", 2000),
     });
@@ -232,6 +248,36 @@ export async function createLead(form: FormData) {
   }
   revalidatePath("/dashboard");
   redirect("/dashboard?message=Customer+requirement+saved#leads");
+}
+
+export async function submitAgencyQrEnquiry(form: FormData) {
+  const agencyId = String(form.get("agency_id") || "").trim();
+  const destination = `/agency/${encodeURIComponent(agencyId)}`;
+  try {
+    if (!/^[a-f0-9-]{36}$/i.test(agencyId)) throw new Error("This agency QR link is invalid.");
+    const customerName = field(form, "name", 100);
+    const phone = field(form, "phone", 25);
+    if (!/^[+\d ()-]{7,25}$/.test(phone)) throw new Error("Enter a valid mobile number.");
+    const emailAddress = optionalField(form, "email", 254).toLowerCase();
+    if (emailAddress && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailAddress)) throw new Error("Enter a valid email address.");
+    const intent = choice(form, "intent", ["buy", "sell", "rent", "lease"] as const);
+    const requirements = field(form, "requirements", 2000);
+    if (requirements.length < 10) throw new Error("Please describe what you are looking for (at least 10 characters).");
+    const supabase = createSupabaseAdminClient();
+    const { error } = await supabase.rpc("realty_submit_agency_enquiry", {
+      target_agency_id: agencyId,
+      customer_name: customerName,
+      customer_phone: phone,
+      customer_email: emailAddress,
+      enquiry_intent: intent,
+      customer_message: requirements,
+    });
+    throwIfError(error);
+  } catch (error) {
+    fail(destination, error);
+  }
+  revalidatePath("/dashboard");
+  redirect(`${destination}?sent=1`);
 }
 
 export async function saveProperty(form: FormData) {
@@ -296,6 +342,9 @@ export async function saveProperty(form: FormData) {
       locality: field(form, "locality", 150),
       city: field(form, "city", 100),
       address: field(form, "address", 500),
+      owner_name: optionalField(form, "owner_name", 100),
+      owner_phone: optionalField(form, "owner_phone", 25),
+      owner_email: optionalField(form, "owner_email", 254).toLowerCase(),
       lat: number(form, "lat", -90, 90),
       lng: number(form, "lng", -180, 180),
       description: field(form, "description", 5000),
@@ -309,6 +358,12 @@ export async function saveProperty(form: FormData) {
       furnishing: choice(form, "furnishing", ["furnished", "semi_furnished", "unfurnished", "not_applicable"]),
       age_years: age,
     };
+    if (values.owner_phone && !/^[+\d ()-]{7,25}$/.test(values.owner_phone)) {
+      throw new Error("Enter a valid property owner phone number.");
+    }
+    if (values.owner_email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.owner_email)) {
+      throw new Error("Enter a valid property owner email address.");
+    }
 
     if (existing) {
       const { data, error } = await supabase.from("properties").update(values).eq("id", id).select("id").maybeSingle();
@@ -389,15 +444,50 @@ export async function updateAgencyProfile(form: FormData) {
     const agencyId = user.role === "super_admin" ? field(form, "agency_id", 100) : user.agency_id;
     if (!agencyId) throw new Error("Access denied.");
     const name = field(form, "name", 150);
+    const contactName = field(form, "contact_name", 100);
+    const contactEmail = field(form, "contact_email", 254).toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) throw new Error("Enter a valid business email address.");
     const phone = field(form, "phone", 25);
+    const whatsapp = optionalField(form, "whatsapp", 25);
+    if (whatsapp && !/^[+\d ()-]{7,25}$/.test(whatsapp)) throw new Error("Enter a valid WhatsApp number.");
+    const website = optionalField(form, "website", 300);
+    if (website) {
+      let parsedWebsite: URL;
+      try { parsedWebsite = new URL(website); } catch { throw new Error("Enter a valid website URL starting with https://."); }
+      if (parsedWebsite.protocol !== "https:" && parsedWebsite.protocol !== "http:") throw new Error("Website URLs must use http:// or https://.");
+    }
+    const registrationNumber = optionalField(form, "registration_number", 100);
     const address = field(form, "address", 500);
+    const city = field(form, "city", 100);
+    const state = field(form, "state", 100);
+    const postalCode = optionalField(form, "postal_code", 20);
+    const serviceAreas = optionalField(form, "service_areas", 1000);
+    const workingHours = optionalField(form, "working_hours", 300);
+    const description = optionalField(form, "description", 2000);
     const lat = optionalNumber(form, "lat", -90, 90);
     const lng = optionalNumber(form, "lng", -180, 180);
     if (!/^[+\d ()-]{7,25}$/.test(phone)) throw new Error("Enter a valid agency phone number.");
     if ((lat === null) !== (lng === null)) throw new Error("Provide both map coordinates or leave both blank.");
     if (form.get("location_confirmed") !== "yes") throw new Error("Please confirm the map pin for the office address.");
     const supabase = await createSupabaseServerClient();
-    const { data, error } = await supabase.from("agencies").update({ name, phone, address, lat, lng }).eq("id", agencyId).select("id").maybeSingle();
+    const { data, error } = await supabase.from("agencies").update({
+      name,
+      contact_name: contactName,
+      contact_email: contactEmail,
+      phone,
+      whatsapp,
+      website,
+      registration_number: registrationNumber,
+      address,
+      city,
+      state,
+      postal_code: postalCode,
+      service_areas: serviceAreas,
+      working_hours: workingHours,
+      description,
+      lat,
+      lng,
+    }).eq("id", agencyId).select("id").maybeSingle();
     throwIfError(error);
     if (!data) throw new Error("Agency not found.");
     await recordActivity(agencyId, user.name, "Updated agency contact and office details");
@@ -584,7 +674,9 @@ export async function saveLead(form: FormData) {
     const { error } = await supabase.from("leads").update({
       name,
       phone,
-      email: email(form),
+      email: optionalEmail(form),
+      client_address: optionalField(form, "client_address", 500),
+      source: choice(form, "source", ["walk_in", "phone", "website", "referral", "other"] as const),
       intent: choice(form, "intent", ["buy", "sell", "rent", "lease"]),
       requirements: field(form, "requirements", 2000),
       status,
@@ -654,4 +746,78 @@ export async function reopenLead(form: FormData) {
 
 export async function removeLead(form: FormData) {
   return deleteLead(form);
+}
+
+export async function saveServiceProvider(form: FormData) {
+  const user = await requireUser();
+  const returnPath = form.get("return_to") === "/dashboard/services" ? "/dashboard/services" : "/dashboard";
+  try {
+    if (user.role === "super_admin" || !user.agency_id) throw new Error("Only agency workspaces can manage service providers.");
+    const id = String(form.get("id") || "").trim();
+    const agencyId = user.agency_id;
+
+    const supabase = await createSupabaseServerClient();
+    let existingAgencyId: string | null = null;
+    if (id) {
+      const { data, error } = await supabase.from("service_providers").select("id,agency_id").eq("id", id).maybeSingle();
+      throwIfError(error);
+      if (!data || data.agency_id !== user.agency_id) {
+        throw new Error("Service provider not found in your agency.");
+      }
+      existingAgencyId = data.agency_id;
+    }
+
+    const name = field(form, "name", 100);
+    const phone = field(form, "phone", 25);
+    if (!/^[+\d ()-]{7,25}$/.test(phone)) throw new Error("Enter a valid phone number.");
+    const emailAddress = optionalField(form, "email", 254).toLowerCase();
+    if (emailAddress && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailAddress)) throw new Error("Enter a valid email address.");
+    const category = field(form, "category", 60);
+    const serviceArea = field(form, "service_area", 200);
+    const address = optionalField(form, "address", 500);
+    const notes = optionalField(form, "notes", 2000);
+    const isActive = form.get("is_active") === "on";
+    const values = { agency_id: agencyId, name, category, phone, email: emailAddress, service_area: serviceArea, address, notes, is_active: isActive };
+    const result = id
+      ? await supabase.from("service_providers").update(values).eq("id", id).select("id").maybeSingle()
+      : await supabase.from("service_providers").insert(values).select("id").maybeSingle();
+    throwIfError(result.error);
+    if (!result.data) throw new Error("Unable to save service provider.");
+
+    const activityAgencyId = existingAgencyId || agencyId;
+    await recordActivity(activityAgencyId, user.name, `${id ? "Updated" : "Added"} ${category.toLowerCase()} contact ${name}`);
+  } catch (error) {
+    failServiceProvider(returnPath, error);
+  }
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/services");
+  redirect(returnPath === "/dashboard/services" ? "/dashboard/services?message=Service+provider+saved" : "/dashboard?message=Service+provider+saved#services");
+}
+
+export async function deleteServiceProvider(form: FormData) {
+  const user = await requireUser();
+  const returnPath = form.get("return_to") === "/dashboard/services" ? "/dashboard/services" : "/dashboard";
+  try {
+    if (user.role === "super_admin" || !user.agency_id) throw new Error("Only agency workspaces can manage service providers.");
+    const id = field(form, "id", 100);
+    const supabase = await createSupabaseServerClient();
+    const { data: provider, error: providerError } = await supabase
+      .from("service_providers")
+      .select("id,agency_id,name,category")
+      .eq("id", id)
+      .maybeSingle();
+    throwIfError(providerError);
+    if (!provider || provider.agency_id !== user.agency_id) {
+      throw new Error("Service provider not found in your agency.");
+    }
+    const { data, error } = await supabase.from("service_providers").delete().eq("id", id).select("id").maybeSingle();
+    throwIfError(error);
+    if (!data) throw new Error("Service provider not found.");
+    await recordActivity(provider.agency_id, user.name, `Removed ${provider.category.toLowerCase()} contact ${provider.name}`);
+  } catch (error) {
+    failServiceProvider(returnPath, error);
+  }
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/services");
+  if (returnPath === "/dashboard/services") redirect("/dashboard/services?message=Service+provider+removed");
 }
