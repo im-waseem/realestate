@@ -53,5 +53,26 @@ GRANT UPDATE (contact_name, contact_email, whatsapp, website, registration_numbe
   city, state, postal_code, service_areas, working_hours, description)
   ON TABLE public.agencies TO authenticated;
 
+-- Expose only a yes/no duplicate-owner check to the trusted server role.
+-- Agency users never receive another agency's id, listing, or owner details.
+CREATE OR REPLACE FUNCTION public.realty_owner_phone_registered_elsewhere(
+  target_phone TEXT,
+  target_agency_id TEXT,
+  excluded_property_id TEXT DEFAULT NULL
+) RETURNS BOOLEAN
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.properties AS p
+    WHERE p.agency_id <> target_agency_id
+      AND (excluded_property_id IS NULL OR p.id <> excluded_property_id)
+      AND regexp_replace(p.owner_phone, '[^0-9]', '', 'g') = regexp_replace(target_phone, '[^0-9]', '', 'g')
+      AND regexp_replace(target_phone, '[^0-9]', '', 'g') <> ''
+  );
+$$;
+REVOKE ALL ON FUNCTION public.realty_owner_phone_registered_elsewhere(TEXT, TEXT, TEXT)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.realty_owner_phone_registered_elsewhere(TEXT, TEXT, TEXT)
+  TO service_role;
+
 NOTIFY pgrst, 'reload schema';
 COMMIT;

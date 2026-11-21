@@ -848,6 +848,21 @@ $$;
 REVOKE ALL ON FUNCTION public.realty_submit_public_enquiry(TEXT,TEXT,TEXT,TEXT,TEXT) FROM PUBLIC,anon,authenticated;
 GRANT EXECUTE ON FUNCTION public.realty_submit_public_enquiry(TEXT,TEXT,TEXT,TEXT,TEXT) TO service_role;
 
+-- Expose only a yes/no duplicate-owner check to the trusted server role.
+CREATE OR REPLACE FUNCTION public.realty_owner_phone_registered_elsewhere(
+ target_phone TEXT, target_agency_id TEXT, excluded_property_id TEXT DEFAULT NULL
+) RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+ SELECT EXISTS (
+   SELECT 1 FROM public.properties p
+   WHERE p.agency_id <> target_agency_id
+     AND (excluded_property_id IS NULL OR p.id <> excluded_property_id)
+     AND regexp_replace(p.owner_phone,'[^0-9]','','g') = regexp_replace(target_phone,'[^0-9]','','g')
+     AND regexp_replace(target_phone,'[^0-9]','','g') <> ''
+ );
+$$;
+REVOKE ALL ON FUNCTION public.realty_owner_phone_registered_elsewhere(TEXT,TEXT,TEXT) FROM PUBLIC,anon,authenticated;
+GRANT EXECUTE ON FUNCTION public.realty_owner_phone_registered_elsewhere(TEXT,TEXT,TEXT) TO service_role;
+
 
 -- Address and pin are saved together on the existing agency row.
 ALTER TABLE public.agencies ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP;

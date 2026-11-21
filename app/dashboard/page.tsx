@@ -445,6 +445,14 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
                 <details className="agency-row workspace-agency" key={agency.id}><summary><span className="workspace-agency-avatar">{agency.name.slice(0, 1).toUpperCase()}</span><span><strong>{agency.name}</strong><small>{agency.user_count} people · {agency.property_count} properties · {agency.lead_count} leads ({agency.open_lead_count} open, {agency.closed_lead_count} closed, {agency.lost_lead_count} lost)</small></span><span className={`badge ${agency.status}`}>{agency.status}</span><span className="workspace-expand">Manage ↗</span></summary>
                   <div className="dashboard-agency-detail">
                     <AgencyDetails agency={agency} editable superAdmin primaryContact={agencyAdminsById.get(agency.id)} />
+                    <section className="panel dashboard-agency-properties" aria-label={`${agency.name} properties`}>
+                      <div className="workspace-card-heading"><div><p className="kicker">AGENCY INVENTORY</p><h3>{agency.name} properties</h3></div></div>
+                      {rawProperties.filter((property) => property.agency_id === agency.id).length > 0 ? (
+                        <ul>{rawProperties.filter((property) => property.agency_id === agency.id).slice(0, 8).map((property) => (
+                          <li key={property.id}><span><Link href={`/dashboard/properties/${property.id}`}>{property.title}</Link><small>{property.locality}, {property.city}</small></span><span className={`badge ${property.status}`}>{property.status}</span></li>
+                        ))}</ul>
+                      ) : <p className="empty">This agency has no properties yet.</p>}
+                    </section>
                     <div className="dashboard-row-end">
                       <span className={`badge ${agency.status}`}>{agency.status}</span>
                       <span className="muted">{agency.user_count} users · {agency.property_count} listings</span>

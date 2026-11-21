@@ -132,6 +132,7 @@ export interface Database {
       realty_public_agency: { Args: { target_agency_id: string }; Returns: { id: string; name: string; phone: string; address: string; lat: number | null; lng: number | null }[] };
       realty_submit_public_enquiry: { Args: { target_id: string; customer_name: string; customer_phone: string; customer_email: string; customer_message: string }; Returns: undefined };
       realty_submit_agency_enquiry: { Args: { target_agency_id: string; customer_name: string; customer_phone: string; customer_email: string; enquiry_intent: string; customer_message: string }; Returns: undefined };
+      realty_owner_phone_registered_elsewhere: { Args: { target_phone: string; target_agency_id: string; excluded_property_id?: string | null }; Returns: boolean };
 
       realty_dashboard_summary: {
         Args: Record<string, never>;

@@ -361,6 +361,18 @@ export async function saveProperty(form: FormData) {
     if (values.owner_phone && !/^[+\d ()-]{7,25}$/.test(values.owner_phone)) {
       throw new Error("Enter a valid property owner phone number.");
     }
+    if (values.owner_phone) {
+      const admin = createSupabaseAdminClient();
+      const { data: registeredElsewhere, error: duplicateError } = await admin.rpc("realty_owner_phone_registered_elsewhere", {
+        target_phone: values.owner_phone,
+        target_agency_id: agencyId,
+        excluded_property_id: id || null,
+      });
+      throwIfError(duplicateError);
+      if (registeredElsewhere) {
+        throw new Error("This owner mobile number is already registered to another agency. Check that you have authorization to list this property before trying again.");
+      }
+    }
     if (values.owner_email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.owner_email)) {
       throw new Error("Enter a valid property owner email address.");
     }
