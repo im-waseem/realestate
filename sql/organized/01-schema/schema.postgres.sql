@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS public.agencies (
   lat DOUBLE PRECISION,
   lng DOUBLE PRECISION,
   created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
   CONSTRAINT agencies_location_pair CHECK ((lat IS NULL) = (lng IS NULL)),
   CONSTRAINT agencies_latitude_range CHECK (lat IS NULL OR lat BETWEEN -90 AND 90),
   CONSTRAINT agencies_longitude_range CHECK (lng IS NULL OR lng BETWEEN -180 AND 180)
@@ -104,6 +105,47 @@ CREATE TABLE IF NOT EXISTS public.leads (
   notes TEXT NOT NULL DEFAULT '',
   created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Enforce agency record caps on fresh installations as well as migrations.
+CREATE OR REPLACE FUNCTION public.realty_enforce_agency_record_limits()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+DECLARE agency_record_count BIGINT;
+BEGIN
+  IF TG_OP = 'UPDATE' AND OLD.agency_id = NEW.agency_id THEN RETURN NEW; END IF;
+  PERFORM 1 FROM public.agencies WHERE id = NEW.agency_id FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Agency not found.' USING ERRCODE = '23503'; END IF;
+
+  IF TG_TABLE_NAME = 'properties' THEN
+    SELECT count(*) INTO agency_record_count FROM public.properties WHERE agency_id = NEW.agency_id;
+    IF agency_record_count >= 30 THEN
+      RAISE EXCEPTION 'Agency property limit reached: an agency can save up to 30 properties.' USING ERRCODE = '23514';
+    END IF;
+  ELSIF TG_TABLE_NAME = 'leads' THEN
+    SELECT count(*) INTO agency_record_count FROM public.leads WHERE agency_id = NEW.agency_id;
+    IF agency_record_count >= 30 THEN
+      RAISE EXCEPTION 'Agency enquiry limit reached: an agency can save up to 30 customer enquiries.' USING ERRCODE = '23514';
+    END IF;
+  ELSIF TG_TABLE_NAME = 'service_providers' THEN
+    SELECT count(*) INTO agency_record_count FROM public.service_providers WHERE agency_id = NEW.agency_id;
+    IF agency_record_count >= 30 THEN
+      RAISE EXCEPTION 'Agency service-provider limit reached: an agency can save up to 30 service providers.' USING ERRCODE = '23514';
+    END IF;
+  ELSE
+    RAISE EXCEPTION 'Agency record limit trigger attached to an unsupported table.';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.realty_enforce_agency_record_limits() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS properties_agency_record_limit ON public.properties;
+CREATE TRIGGER properties_agency_record_limit
+BEFORE INSERT OR UPDATE ON public.properties
+FOR EACH ROW EXECUTE FUNCTION public.realty_enforce_agency_record_limits();
+DROP TRIGGER IF EXISTS leads_agency_record_limit ON public.leads;
+CREATE TRIGGER leads_agency_record_limit
+BEFORE INSERT OR UPDATE ON public.leads
+FOR EACH ROW EXECUTE FUNCTION public.realty_enforce_agency_record_limits();
 
 CREATE TABLE IF NOT EXISTS public.loan_leads (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -195,6 +237,10 @@ COMMENT ON COLUMN public.service_providers.category IS
   'Agency-selected trade or property service; kept as flexible text so service types can evolve without schema changes.';
 CREATE INDEX IF NOT EXISTS service_providers_agency_category_idx
   ON public.service_providers (agency_id, category, name);
+DROP TRIGGER IF EXISTS service_providers_agency_record_limit ON public.service_providers;
+CREATE TRIGGER service_providers_agency_record_limit
+BEFORE INSERT OR UPDATE ON public.service_providers
+FOR EACH ROW EXECUTE FUNCTION public.realty_enforce_agency_record_limits();
 
 CREATE TABLE IF NOT EXISTS public.activity (
   id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
@@ -233,6 +279,7 @@ ALTER TABLE public.agencies ADD COLUMN IF NOT EXISTS description TEXT NOT NULL D
 ALTER TABLE public.agencies ADD COLUMN IF NOT EXISTS lat DOUBLE PRECISION;
 ALTER TABLE public.agencies ADD COLUMN IF NOT EXISTS lng DOUBLE PRECISION;
 ALTER TABLE public.agencies ALTER COLUMN status SET DEFAULT 'pending';
+ALTER TABLE public.agencies ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE public.properties ADD COLUMN IF NOT EXISTS floor_number INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE public.properties ADD COLUMN IF NOT EXISTS total_floors INTEGER;
 ALTER TABLE public.properties ADD COLUMN IF NOT EXISTS car_parking INTEGER NOT NULL DEFAULT 0;

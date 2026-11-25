@@ -58,10 +58,41 @@ export default async function HomePage() {
     totalFloors: property.total_floors,
     carParking: property.car_parking,
     twoWheelerParking: property.two_wheeler_parking,
+    description: property.description,
+    amenities: property.amenities,
+    furnishing: property.furnishing,
+    ageYears: property.age_years,
+    lat: property.lat,
+    lng: property.lng,
+    address: property.address,
+    ownerName: property.owner_name,
+    ownerPhone: property.owner_phone,
+    ownerEmail: property.owner_email,
   }));
   return (
     <HomeClient
-      homes={agencyId ? homes : publicListings.map(property => ({ id:property.id,name:property.title,location:`${property.locality}, ${property.city}`,price:property.price,beds:property.beds,baths:property.baths,area:property.area,image:coverImage(property.images),type:property.type,intent:property.intent,floorNumber:property.floor_number,totalFloors:property.total_floors,carParking:property.car_parking,twoWheelerParking:property.two_wheeler_parking }))}
+      homes={agencyId ? homes : publicListings.map(property => ({
+        id: property.id,
+        name: property.title,
+        location: `${property.locality}, ${property.city}`,
+        price: property.price,
+        beds: property.beds,
+        baths: property.baths,
+        area: property.area,
+        image: coverImage(property.images),
+        type: property.type,
+        intent: property.intent,
+        floorNumber: property.floor_number,
+        totalFloors: property.total_floors,
+        carParking: property.car_parking,
+        twoWheelerParking: property.two_wheeler_parking,
+        description: property.description,
+        amenities: property.amenities,
+        furnishing: property.furnishing,
+        ageYears: property.age_years,
+        lat: property.map_lat,
+        lng: property.map_lng,
+      }))}
       year={new Date().getFullYear()}
       agencyName={agency?.name}
       agencyPhone={agency?.phone}

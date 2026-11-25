@@ -16,7 +16,7 @@ const sources = [
   ["other", "Other"],
 ];
 
-export default async function NewLead({ searchParams }: { searchParams: Promise<{ message?: string }> }) {
+export default async function NewLead({ searchParams }: { searchParams: Promise<{ message?: string; agency_id?: string }> }) {
   const user = await requireUser();
   const query = await searchParams;
   const supabase = await createSupabaseServerClient();
@@ -28,6 +28,7 @@ export default async function NewLead({ searchParams }: { searchParams: Promise<
     const result = await supabase.from("agencies").select("id,name").order("name");
     agencies = supabaseData(result.data, result.error, "Unable to load agencies");
   }
+  const selectedAgencyId = agencies.some((agency) => agency.id === query.agency_id) ? query.agency_id! : "";
   if (user.role !== "super_admin" && !user.agency_id) notFound();
 
   return (
@@ -40,7 +41,7 @@ export default async function NewLead({ searchParams }: { searchParams: Promise<
         <Notice message={query.message} />
         <form action={createLead} className="panel stack">
           {user.role === "super_admin" && (
-            <label>Agency<select name="agency_id" required defaultValue="">
+            <label>Agency<select name="agency_id" required defaultValue={selectedAgencyId}>
               <option value="" disabled>Select agency</option>
               {agencies.map((agency) => <option key={agency.id} value={agency.id}>{agency.name}</option>)}
             </select></label>

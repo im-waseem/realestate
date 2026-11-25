@@ -7,7 +7,8 @@ inside SQL or commit them. These files do not create Auth passwords.
 
 Run **`schema.postgres.sql`** once. This is the complete, current PostgreSQL
 schema: agency roles, private workspaces, storage, summaries, public catalogue,
-public enquiries and office-map updates. No other migration is needed afterward.
+public enquiries, office-map updates, and agency caps of 30 properties,
+30 enquiries, and 30 service providers. No other migration is needed afterward.
 
 To add sample listings to the agency attached to `babywaseem786@gmail.com`,
 run `seed-demo-properties-babywaseem786.postgres.sql` after that Auth user has
@@ -53,6 +54,14 @@ Apply these in order (skip a migration already applied):
 14. `migrations/20261124_agency_uploads_hardening.sql`
 15. `migrations/20261125_agency_feature_flags.sql`
 16. `migrations/20261126_home_loans.sql`
+17. `migrations/20261129_agency_record_limits.sql`
+18. **`migrations/20261130_agency_loan_products.sql`**
+
+The loan-products migration adds Personal, Business, Home, LAP, and Education
+loan switches per agency, enables only Home Loan by default where the earlier
+home-loans feature was already enabled, and keeps new agency product switches
+off until the platform admin enables them. It also adds the database guard for
+disabled products. Apply it before using the updated loan dashboard.
 
 The marketplace migration contains all three feature modules in one transaction.
 The service-provider migration adds an agency-owned directory for local trades.
@@ -107,6 +116,12 @@ The home-loans migration adds feature-gated agency pipelines, private loan
 document metadata and a private `loan-documents` storage bucket. Uploads and
 downloads go through authenticated server routes; the bucket must remain
 private. Platform admins can review documents and all agencies' loan leads.
+The agency-record-limits migration rejects property, customer-enquiry, or
+service-provider inserts that would exceed 30 rows of that type for an agency.
+It applies to all statuses and to enquiries submitted through property, agency
+and walk-in forms. Existing rows are retained; deleting a row frees a slot. It
+also serializes concurrent saves per agency so simultaneous requests cannot
+pass a cap.
 The `tools` flag gates `/dashboard/tools`, a browser-only suite of eight
 property-finance calculators. Its editable state/UT stamp-duty defaults are
 indicative estimates and should be checked against current local rules.

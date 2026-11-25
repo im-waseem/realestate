@@ -4,6 +4,7 @@ export type Agency = {
   id: string;
   name: string;
   status: string;
+  is_active: boolean;
   features?: AgencyFeatures;
   logo_url: string;
   contact_name: string;
@@ -102,6 +103,7 @@ export type Lead = {
 export type LoanLead = {
   id: string;
   agency_id: string;
+  loan_type: "personal_loan" | "business_loan" | "home_loan" | "lap" | "education_loan";
   source_lead_id: string | null;
   property_id: string | null;
   customer_name: string;
@@ -123,7 +125,7 @@ export type LoanDocument = {
   id: string;
   lead_id: string;
   agency_id: string;
-  doc_type: "id" | "address" | "income" | "bank_statements" | "property_papers";
+  doc_type: string;
   file_path: string;
   file_name: string;
   content_type: "application/pdf" | "image/jpeg" | "image/png" | "image/webp";

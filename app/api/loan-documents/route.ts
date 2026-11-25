@@ -4,11 +4,12 @@ import { currentUser } from "@/lib/auth";
 import { hasAgencyFeature } from "@/lib/features";
 import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { LOAN_DOCUMENTS, type LoanProductType } from "@/lib/loan-products";
 
 export const runtime = "nodejs";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
-const documentTypeSchema = z.enum(["id", "address", "income", "bank_statements", "property_papers"]);
+const documentTypeSchema = z.string().trim().min(1).max(80);
 
 function detectFileType(bytes: Buffer) {
   if (bytes.subarray(0, 5).toString("ascii") === "%PDF-") return { extension: "pdf", contentType: "application/pdf" as const };
@@ -53,12 +54,16 @@ export async function POST(request: Request) {
     const supabase = await createSupabaseServerClient();
     const { data: lead, error: leadError } = await supabase
       .from("loan_leads")
-      .select("id,agency_id")
+      .select("id,agency_id,loan_type")
       .eq("id", leadId.data)
       .maybeSingle();
     if (leadError) throw new Error(`Unable to verify the loan lead: ${leadError.message}`);
     if (!lead || (user.role !== "super_admin" && lead.agency_id !== user.agency_id)) {
       return Response.json({ error: "Home-loan lead not found." }, { status: 404 });
+    }
+    const validTypes = LOAN_DOCUMENTS[lead.loan_type as LoanProductType].map(([type]) => type);
+    if (!validTypes.includes(docType.data)) {
+      return Response.json({ error: "That document category is not part of this loan checklist." }, { status: 400 });
     }
 
     const bytes = Buffer.from(await file.arrayBuffer());

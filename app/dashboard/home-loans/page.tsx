@@ -16,7 +16,10 @@ export default async function HomeLoansPage() {
 
   const [leadsResult, propertiesResult, profilesResult, agenciesResult] = await Promise.all([
     supabase.from("loan_leads").select("*").order("created_at", { ascending: false }),
-    supabase.from("properties").select("id,title,agency_id"),
+    (() => {
+      const propertiesQuery = supabase.from("properties").select("id,title,agency_id");
+      return isAdmin ? propertiesQuery : propertiesQuery.eq("agency_id", user.agency_id || "");
+    })(),
     supabase.from("profiles").select("id,name,agency_id").eq("is_active", true).in("role", ["agency_admin", "agent"]),
     supabase.from("agencies").select("id,name"),
   ]);

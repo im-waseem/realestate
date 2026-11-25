@@ -7,6 +7,7 @@ import { deleteProperty, propertyStatus } from "@/app/actions";
 import { useToast } from "@/components/dashboard/toaster";
 import type { Property } from "@/lib/db";
 import { propertyStatusFromDatabase } from "@/lib/property-schema";
+import { PropertyDetailsDialog } from "@/components/property-details-dialog";
 
 type Row = Property & { agency_name?: string; lead_count?: number };
 const pageSize = 10;
@@ -17,6 +18,7 @@ export function PropertyTable({ properties, isAdmin = false }: { properties: Row
   const [type, setType] = useState("all");
   const [sort, setSort] = useState("newest");
   const [page, setPage] = useState(1);
+  const [selectedProperty, setSelectedProperty] = useState<Row | null>(null);
   const [pending, startTransition] = useTransition();
   const toast = useToast();
   const router = useRouter();
@@ -68,10 +70,11 @@ export function PropertyTable({ properties, isAdmin = false }: { properties: Row
         {isAdmin && <td>{property.agency_name || "—"}</td>}
         <td>₹{property.price.toLocaleString("en-IN")}</td>
         <td><span className={`badge ${propertyStatusFromDatabase(property.status)}`}>{propertyStatusFromDatabase(property.status)}</span></td>
-        <td><div className="row-actions"><Link href={`/dashboard/properties/${property.id}`}>Edit</Link><select aria-label={`Status for ${property.title}`} value={propertyStatusFromDatabase(property.status)} disabled={pending} onChange={(event) => updateStatus(property.id, event.target.value)}>{["draft", "active", "sold", "rented"].map((item) => <option key={item}>{item}</option>)}</select><button type="button" className="text-button" disabled={pending || Boolean(property.lead_count)} title={property.lead_count ? "Resolve linked enquiries before deleting" : "Delete property"} onClick={() => remove(property)}>Delete</button></div></td>
+        <td><div className="row-actions"><button type="button" className="text-button" onClick={() => setSelectedProperty(property)}>View</button><Link href={`/dashboard/properties/${property.id}`}>Edit</Link><select aria-label={`Status for ${property.title}`} value={propertyStatusFromDatabase(property.status)} disabled={pending} onChange={(event) => updateStatus(property.id, event.target.value)}>{["draft", "active", "sold", "rented"].map((item) => <option key={item}>{item}</option>)}</select><button type="button" className="text-button" disabled={pending || Boolean(property.lead_count)} title={property.lead_count ? "Resolve linked enquiries before deleting" : "Delete property"} onClick={() => remove(property)}>Delete</button></div></td>
       </tr>)}</tbody>
     </table></div>
     {!filtered.length && <p className="empty">{properties.length ? "No properties match these filters." : "No properties yet. Add your first listing to get started."}</p>}
     {filtered.length > 0 && <div className="property-table-pagination"><span>{filtered.length} properties · Page {page} of {pages}</span><div><button className="btn small workspace-secondary" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</button><button className="btn small workspace-secondary" disabled={page >= pages} onClick={() => setPage(page + 1)}>Next</button></div></div>}
+    {selectedProperty && <PropertyDetailsDialog property={selectedProperty} onClose={() => setSelectedProperty(null)} />}
   </div>;
 }

@@ -4,27 +4,32 @@ import { AgencyProfileEditor } from "@/components/dashboard/agency-profile-edito
 import { SubmitButton } from "@/components/dashboard/submit-button";
 import { SearchableCollection } from "@/components/dashboard/searchable-collection";
 import { PropertyTable } from "@/components/dashboard/property-table";
+import { AgencyPropertyList } from "@/components/dashboard/agency-property-list";
 import { WorkspaceShell, WorkspaceSection, WorkspaceNavLink } from "@/components/dashboard/workspace-shell";
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { requireUser } from "@/lib/auth";
-import type { Lead, Property, ServiceProvider, User } from "@/lib/db";
+import type { Lead, LoanDocument, LoanLead, Property, ServiceProvider, User } from "@/lib/db";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { supabaseData } from "@/lib/supabase/results";
 import { sevenDaysAgoIso } from "@/lib/dates";
-import { addStaff, deleteAgency, deleteServiceProvider, logout, saveServiceProvider, setAgencyStatus, setStaffActive, updateAgencyFeature, updateStaff } from "@/app/actions";
+import { addStaff, deleteAgency, deleteServiceProvider, logout, saveServiceProvider, setAgencyActive, setAgencyStatus, setStaffActive, updateAgencyFeature, updateAgencyLoanProduct, updateStaff } from "@/app/actions";
 import { Notice } from "@/components/platform";
 import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
 import { EnquiriesTable } from "@/components/dashboard/enquiries-table";
 import { AgencyLeadQr } from "@/components/dashboard/agency-lead-qr";
 import enquiryStyles from "@/components/dashboard/enquiry-item.module.css";
 import { hasAgencyFeature, type AgencyFeature } from "@/lib/features";
+import { DashboardTools } from "@/components/tools/dashboard-tools";
+import { HomeLoansBoard } from "@/components/dashboard/home-loans";
+import { LOAN_PRODUCTS, LOAN_PRODUCT_IMAGES, type LoanProductType } from "@/lib/loan-products";
 
 type Agency = {
   id: string;
   name: string;
   status: string;
+  is_active: boolean;
   features: { home_loans: boolean; tools: boolean };
   logo_url: string;
   contact_name: string;
@@ -49,6 +54,7 @@ type Agency = {
   closed_lead_count: number;
   lost_lead_count: number;
   activity_count: number;
+  enquiries?: DashboardLead[];
 };
 type DashboardProperty = Property & { agency_name?: string };
 type DashboardLead = Lead & { agency_name?: string; property_title?: string; assignee_name?: string };
@@ -71,18 +77,23 @@ function ServiceProviderForm({
   provider,
   agencyId,
   superAdmin,
+  lockAgency = false,
   compact = false,
 }: {
   agencies: Agency[];
   provider?: ServiceProvider;
   agencyId?: string;
   superAdmin: boolean;
+  lockAgency?: boolean;
   compact?: boolean;
 }) {
   return (
     <form action={saveServiceProvider} className={`stack service-provider-form ${compact ? "is-compact" : ""}`}>
       {provider && <input type="hidden" name="id" value={provider.id} />}
-      {superAdmin && (
+      {lockAgency && agencyId ? <>
+        <input type="hidden" name="agency_id" value={agencyId} />
+        <p className="muted">Agency: {agencies.find((agency) => agency.id === agencyId)?.name || "Your agency"}</p>
+      </> : superAdmin && (
         <label>Agency<select name="agency_id" defaultValue={provider?.agency_id || agencyId || ""} required>
           <option value="" disabled>Select an agency</option>
           {agencies.map((agency) => <option key={agency.id} value={agency.id}>{agency.name} · {agency.status}</option>)}
@@ -118,6 +129,17 @@ function AgencyFeatureControl({ agency, feature, label }: { agency: Agency; feat
       <SubmitButton className="btn small workspace-secondary">{enabled ? "Disable" : "Enable"}</SubmitButton>
     </form>
   );
+}
+
+function AgencyLoanProductControl({ agencyId, product, enabled }: { agencyId: string; product: (typeof LOAN_PRODUCTS)[number]; enabled: boolean }) {
+  return <form action={updateAgencyLoanProduct} className="agency-feature-control">
+    <input type="hidden" name="agency_id" value={agencyId} />
+    <input type="hidden" name="loan_type" value={product.id} />
+    <input type="hidden" name="enabled" value={enabled ? "false" : "true"} />
+    <span className="agency-loan-product"><Image src={LOAN_PRODUCT_IMAGES[product.id]} alt="" width={64} height={48} unoptimized /><span>{product.label}</span></span>
+    <span className={`badge ${enabled ? "active" : "suspended"}`}>{enabled ? "Enabled" : "Disabled"}</span>
+    <SubmitButton className="btn small workspace-secondary">{enabled ? "Disable" : "Enable"}</SubmitButton>
+  </form>;
 }
 
 function Metric({ label, value, detail }: { label: string; value: number | string; detail: string }) {
@@ -221,7 +243,7 @@ function SidebarIcon({ name }: { name: string }) {
   );
 }
 
-export default async function Dashboard({ searchParams }: { searchParams: Promise<{ message?: string; leadsPage?: string; enquiryStatus?: string; enquirySearch?: string; assignedTo?: string; propertyId?: string }> }) {
+export default async function Dashboard({ searchParams }: { searchParams: Promise<{ message?: string; leadsPage?: string; enquiryStatus?: string; enquirySearch?: string; assignedTo?: string; propertyId?: string; openAgency?: string; openLoanAgency?: string }> }) {
   const user = await requireUser();
   const query = await searchParams;
   const isSuperAdmin = user.role === "super_admin";
@@ -237,7 +259,10 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
   const propertyId = /^[a-zA-Z0-9-]{1,100}$/.test(query.propertyId || "") ? query.propertyId! : "";
   const sevenDaysAgo = sevenDaysAgoIso();
   const [propertyResult, leadResult, allLeadCountResult, summaryResult, staffResult, recentEnquiryResult] = await Promise.all([
-    supabase.from("properties").select("*").order("created_at", { ascending: false }),
+    (() => {
+      const propertiesQuery = supabase.from("properties").select("*").order("created_at", { ascending: false });
+      return isSuperAdmin ? propertiesQuery : propertiesQuery.eq("agency_id", user.agency_id || "");
+    })(),
     (() => {
       let leadsQuery = supabase.from("leads")
       .select("*", { count: "exact" })
@@ -280,23 +305,32 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
       agencyAdminsById.set(member.agency_id, member);
     }
   }
+  const staffById = new Map(staff.map((member) => [member.id, member.name]));
+  const propertyTitleById = new Map(rawProperties.map((property) => [property.id, property.title]));
   let agencies: Agency[] = [];
   let agencyDetails: Agency | undefined;
   if (isSuperAdmin) {
     const agencyResult = await supabase.from("agencies").select("*").order("created_at", { ascending: false });
     const agencyRows = supabaseData(agencyResult.data, agencyResult.error, "Unable to load agencies");
     agencies = await Promise.all(agencyRows.map(async (agency) => {
-      const [leadCount, openLeadCount, closedLeadCount] = await Promise.all([
+      const [leadCount, openLeadCount, closedLeadCount, agencyLeadResult] = await Promise.all([
         supabase.from("leads").select("id", { count: "exact", head: true }).eq("agency_id", agency.id),
         supabase.from("leads").select("id", { count: "exact", head: true }).eq("agency_id", agency.id).not("status", "in", "(closed,lost)"),
         supabase.from("leads").select("id", { count: "exact", head: true }).eq("agency_id", agency.id).eq("status", "closed"),
+        supabase.from("leads").select("*").eq("agency_id", agency.id).order("created_at", { ascending: false }).order("id", { ascending: false }),
       ]);
-      if (leadCount.error || openLeadCount.error || closedLeadCount.error) {
+      if (leadCount.error || openLeadCount.error || closedLeadCount.error || agencyLeadResult.error) {
         throw new Error("Unable to load agency enquiry totals.");
       }
       const total = leadCount.count ?? 0;
       const open = openLeadCount.count ?? 0;
       const closed = closedLeadCount.count ?? 0;
+      const enquiries: DashboardLead[] = supabaseData(agencyLeadResult.data, agencyLeadResult.error, "Unable to load agency enquiries").map((lead) => ({
+        ...lead,
+        agency_name: agency.name,
+        property_title: lead.property_id ? propertyTitleById.get(lead.property_id) : undefined,
+        assignee_name: lead.assigned_to ? staffById.get(lead.assigned_to) : undefined,
+      }));
       return {
         ...agency,
         user_count: staff.filter((member) => member.agency_id === agency.id).length,
@@ -306,6 +340,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
         closed_lead_count: closed,
         lost_lead_count: Math.max(0, total - open - closed),
         activity_count: 0,
+        enquiries,
       };
     }));
   } else if (user.agency_id) {
@@ -323,12 +358,16 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
     };
   }
   const agenciesById = new Map(agencies.map((agency) => [agency.id, agency.name]));
+  const loanProductResult = isSuperAdmin
+    ? await supabase.from("agency_loan_products").select("agency_id,loan_type,enabled")
+    : null;
+  const agencyLoanProducts = loanProductResult
+    ? supabaseData(loanProductResult.data, loanProductResult.error, "Unable to load agency loan products. Apply sql/migrations/20261130_agency_loan_products.sql") as { agency_id: string; loan_type: LoanProductType; enabled: boolean }[]
+    : [];
   const properties: DashboardProperty[] = rawProperties.map((property) => ({
     ...property,
     agency_name: agenciesById.get(property.agency_id) || agencyDetails?.name,
   }));
-  const staffById = new Map(staff.map((member) => [member.id, member.name]));
-  const propertyTitleById = new Map(rawProperties.map((property) => [property.id, property.title]));
   const leads: DashboardLead[] = rawLeads.map((lead) => ({
     ...lead,
     agency_name: agenciesById.get(lead.agency_id) || agencyDetails?.name,
@@ -339,25 +378,64 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
     ...provider,
     agency_name: agenciesById.get(provider.agency_id) || agencyDetails?.name,
   }));
+  const serviceProviderGroups = isSuperAdmin
+    ? [
+        ...agencies.map((agency) => ({
+          id: agency.id,
+          name: agency.name,
+          providers: serviceProviders.filter((provider) => provider.agency_id === agency.id),
+        })),
+        ...(serviceProviders.some((provider) => !agenciesById.has(provider.agency_id))
+          ? [{ id: "unassigned", name: "Unassigned agency", providers: serviceProviders.filter((provider) => !agenciesById.has(provider.agency_id)) }]
+          : []),
+      ]
+    : [{ id: user.agency_id || "", name: agencyDetails?.name || "Your agency", providers: serviceProviders }];
+  const loanLeadResult = homeLoansEnabled
+    ? await supabase.from("loan_leads").select("*").order("created_at", { ascending: false })
+    : null;
+  const loanLeads = loanLeadResult
+    ? supabaseData(loanLeadResult.data, loanLeadResult.error, "Unable to load home-loan leads") as LoanLead[]
+    : [];
+  const loanDocumentResult = loanLeads.length
+    ? await supabase.from("loan_documents").select("*").in("lead_id", loanLeads.map((lead) => lead.id)).order("created_at", { ascending: false })
+    : null;
+  const loanDocuments = loanDocumentResult
+    ? supabaseData(loanDocumentResult.data, loanDocumentResult.error, "Unable to load private loan documents") as LoanDocument[]
+    : [];
+  const loanDocumentsByLead = new Map<string, LoanDocument[]>();
+  for (const document of loanDocuments) {
+    const current = loanDocumentsByLead.get(document.lead_id) || [];
+    current.push(document);
+    loanDocumentsByLead.set(document.lead_id, current);
+  }
+  const homeLoanRows = loanLeads.map((lead) => ({
+    ...lead,
+    agency_name: agenciesById.get(lead.agency_id) || agencyDetails?.name,
+    property_title: lead.property_id ? propertyTitleById.get(lead.property_id) : undefined,
+    assignee_name: lead.assigned_to ? staffById.get(lead.assigned_to) : undefined,
+    documents: loanDocumentsByLead.get(lead.id) || [],
+  }));
   const agencyName = agencyDetails?.name;
   const pendingProperties = summary.pending;
   const pendingAgencies = summary.pending_agencies;
   const newEnquiriesDetail = recentEnquiryCount === 0 ? "No new enquiries in the last seven days" : "Submitted in the last seven days";
   const navigation = [
     { label: "Overview", href: "#overview", icon: "overview" },
+    ...(isSuperAdmin ? [{ label: "Agencies", href: "#agencies", icon: "agencies" }] : []),
     { label: "Properties", href: "#inventory", icon: "properties", count: isSuperAdmin ? pendingProperties : undefined },
-    { label: "Enquiries", href: "#leads", icon: "leads", count: activeLeads },
-    ...(homeLoansEnabled ? [{ label: "Home loans", href: "/dashboard/home-loans", icon: "loans" }] : []),
+    ...(!isSuperAdmin ? [{ label: "Enquiries", href: "#leads", icon: "leads", count: activeLeads }] : []),
+    ...(homeLoansEnabled ? [{ label: "Home loans", href: "#home-loans", icon: "loans" }] : []),
+    ...(isSuperAdmin ? [{ label: "Loans", href: "#loans", icon: "loans" }] : []),
     { label: "Team", href: "#team", icon: "team" },
     ...(toolsEnabled ? [
-      { label: "Tools", href: "/dashboard/tools", icon: "tools" },
+      { label: "Tools", href: "#tools", icon: "tools" },
       { label: "Service providers", href: "#services", icon: "services" },
     ] : []),
-    { label: "Settings", href: isSuperAdmin ? "#agencies" : "#agency-details", icon: "settings" },
+    ...(!isSuperAdmin ? [{ label: "Settings", href: "#agency-details", icon: "settings" }] : []),
   ];
 
   return (
-    <WorkspaceShell theme={isSuperAdmin ? "platform" : "agency"} allowedViews={isSuperAdmin ? ["overview", "agencies", "inventory", "leads", "team", "services"] : ["overview", "agency-details", "inventory", "leads", ...(toolsEnabled ? ["services"] : []), "team"]}>
+    <WorkspaceShell theme={isSuperAdmin ? "platform" : "agency"} defaultView={isSuperAdmin ? "agencies" : "overview"} allowedViews={isSuperAdmin ? ["overview", "agencies", "inventory", "team", "loans", ...(homeLoansEnabled ? ["home-loans"] : []), ...(toolsEnabled ? ["tools", "services"] : [])] : ["overview", "agency-details", "inventory", "leads", ...(homeLoansEnabled ? ["home-loans"] : []), ...(toolsEnabled ? ["tools", "services"] : []), "team"]}>
       <aside className="dashboard-sidebar">
         <Link className="dashboard-sidebar-brand" href="/">
           <span className="dashboard-sidebar-brandmark">{isSuperAdmin ? "W" : agencyName?.trim().slice(0, 1).toUpperCase() || "W"}</span>
@@ -431,7 +509,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
                 : `${agencyName || "Your agency"} · Manage your listings, customer enquiries, and team in one place.`}
             </p>
           </div>
-          <div className="hero-actions"><Link className="btn workspace-secondary" href="/dashboard/leads/new">+ Add enquiry</Link><Link className="btn" href="/dashboard/properties/new">+ Add property</Link></div>
+          <div className="hero-actions">{!isSuperAdmin && <Link className="btn workspace-secondary" href="/dashboard/leads/new">+ Add enquiry</Link>}<Link className="btn" href="/dashboard/properties/new">+ Add property</Link></div>
         </section>
 
 
@@ -448,7 +526,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
             <div className="workspace-card-heading"><div><p className="kicker">YOUR NEXT STEPS</p><h2>Needs your attention</h2></div><span className="workspace-round-icon"><SidebarIcon name="activity" /></span></div>
             {isSuperAdmin && <a className="workspace-task" href="#agencies"><span className="workspace-task-icon"><SidebarIcon name="agencies" /></span><span><strong>Agency approvals</strong><small>Review registrations and manage workspace access</small></span><b>{pendingAgencies}</b><span>→</span></a>}
             <a className="workspace-task" href="#inventory"><span className="workspace-task-icon"><SidebarIcon name="properties" /></span><span><strong>{isSuperAdmin ? "Listing review" : "Your property inventory"}</strong><small>{pendingProperties} pending · keep availability up to date</small></span><b>{summary.property_total}</b><span>→</span></a>
-            <a className="workspace-task" href="#leads"><span className="workspace-task-icon"><SidebarIcon name="leads" /></span><span><strong>Customer follow-ups</strong><small>Open conversations waiting for their next step</small></span><b>{activeLeads}</b><span>→</span></a>
+            {!isSuperAdmin && <a className="workspace-task" href="#leads"><span className="workspace-task-icon"><SidebarIcon name="leads" /></span><span><strong>Customer follow-ups</strong><small>Open conversations waiting for their next step</small></span><b>{activeLeads}</b><span>→</span></a>}
             <a className="workspace-task" href="#team"><span className="workspace-task-icon"><SidebarIcon name="team" /></span><span><strong>{isSuperAdmin ? "People & access" : "Your team"}</strong><small>{isSuperAdmin ? "Manage agency roles and accounts" : "Find your agents and manage team access"}</small></span><b>{summary.team_count}</b><span>→</span></a>
           </article>
           <article className="panel workspace-inventory-summary">
@@ -498,7 +576,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
             </section>}
             <div className="panel dashboard-list">
               <SearchableCollection label="Find an agency" items={agencies.map((agency) => ({ id: agency.id, search: `${agency.name} ${agency.phone} ${agency.status}`, content: (
-                <details className="agency-row workspace-agency" key={agency.id}><summary><span className="workspace-agency-avatar">{agency.name.slice(0, 1).toUpperCase()}</span><span><strong>{agency.name}</strong><small>{agency.user_count} people · {agency.property_count} properties · {agency.lead_count} leads ({agency.open_lead_count} open, {agency.closed_lead_count} closed, {agency.lost_lead_count} lost)</small></span><span className={`badge ${agency.status}`}>{agency.status}</span><span className="workspace-expand">Manage ↗</span></summary>
+                <details className="agency-row workspace-agency" key={agency.id} open={isSuperAdmin && query.openAgency === agency.id}><summary><span className="workspace-agency-avatar">{agency.name.slice(0, 1).toUpperCase()}</span><span><strong>{agency.name}</strong><small>{agency.user_count} people · {agency.property_count} properties · {agency.lead_count} enquiries ({agency.open_lead_count} open, {agency.closed_lead_count} closed, {agency.lost_lead_count} lost) · {agencyLoanProducts.filter((item) => item.agency_id === agency.id && item.enabled).length} loan types enabled</small></span><span className={`badge ${agency.status}`}>{agency.status}</span><span className="workspace-expand">Manage ↗</span></summary>
                   <div className="dashboard-agency-detail">
                     <AgencyDetails agency={agency} editable superAdmin primaryContact={agencyAdminsById.get(agency.id)} />
                       <section className="panel agency-feature-controls" aria-label={`${agency.name} feature access`}>
@@ -508,11 +586,32 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
                       </section>
                     <section className="panel dashboard-agency-properties" aria-label={`${agency.name} properties`}>
                       <div className="workspace-card-heading"><div><p className="kicker">AGENCY INVENTORY</p><h3>{agency.name} properties</h3></div></div>
-                      {rawProperties.filter((property) => property.agency_id === agency.id).length > 0 ? (
-                        <ul>{rawProperties.filter((property) => property.agency_id === agency.id).slice(0, 8).map((property) => (
-                          <li key={property.id}><span><Link href={`/dashboard/properties/${property.id}`}>{property.title}</Link><small>{property.locality}, {property.city}</small></span><span className={`badge ${property.status}`}>{property.status}</span></li>
+                      <AgencyPropertyList properties={rawProperties.filter((property) => property.agency_id === agency.id).slice(0, 8)} />
+                    </section>
+                    <section className="panel dashboard-agency-properties" aria-label={`${agency.name} service providers`}>
+                      <div className="workspace-card-heading"><div><p className="kicker">SERVICE DIRECTORY</p><h3>{agency.name} service providers</h3></div></div>
+                      {serviceProviders.filter((provider) => provider.agency_id === agency.id).length > 0 ? (
+                        <ul>{serviceProviders.filter((provider) => provider.agency_id === agency.id).map((provider) => (
+                          <li key={provider.id}>
+                            <span><strong>{provider.name}</strong><small>{provider.category} · {provider.service_area}{provider.phone ? ` · ${provider.phone}` : ""}</small></span>
+                            <span className={`badge ${provider.is_active ? "active" : "suspended"}`}>{provider.is_active ? "Available" : "Inactive"}</span>
+                          </li>
                         ))}</ul>
-                      ) : <p className="empty">This agency has no properties yet.</p>}
+                      ) : <p className="empty">This agency has no service providers yet.</p>}
+                    </section>
+                    <section className="panel dashboard-agency-properties dashboard-agency-enquiries" aria-label={`${agency.name} customer enquiries`}>
+                      <div className="workspace-card-heading">
+                        <div><p className="kicker">CUSTOMER RELATIONSHIPS</p><h3>{agency.name} enquiries</h3></div>
+                        <Link className="btn small workspace-secondary" href={`/dashboard/leads/new?agency_id=${encodeURIComponent(agency.id)}`}>+ Add enquiry</Link>
+                      </div>
+                      {agency.enquiries?.length ? (
+                        <EnquiriesTable
+                          leads={agency.enquiries}
+                          assignees={staff.filter((member) => member.agency_id === agency.id).map((member) => ({ id: member.id, name: member.name, agency_id: member.agency_id }))}
+                          properties={rawProperties.filter((property) => property.agency_id === agency.id).map((property) => ({ id: property.id, title: property.title, agency_id: property.agency_id }))}
+                          homeLoansEnabled={homeLoansEnabled}
+                        />
+                      ) : <p className="empty">This agency has no customer enquiries yet.</p>}
                     </section>
                     <div className="dashboard-row-end">
                       <span className={`badge ${agency.status}`}>{agency.status}</span>
@@ -522,6 +621,13 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
                         <input type="hidden" name="status" value={agency.status === "active" ? "suspended" : "active"} />
                         <SubmitButton className="btn small" pendingLabel="Updating access…">
                           {agency.status === "pending" ? "Approve agency" : agency.status === "suspended" ? "Reactivate agency" : "Suspend agency"}
+                        </SubmitButton>
+                      </form>
+                      <form action={setAgencyActive}>
+                        <input type="hidden" name="agency_id" value={agency.id} />
+                        <input type="hidden" name="is_active" value={agency.is_active ? "false" : "true"} />
+                        <SubmitButton className="btn small workspace-secondary">
+                          {agency.is_active ? "Disable agency" : "Enable agency"}
                         </SubmitButton>
                       </form>
                       <form action={deleteAgency}>
@@ -559,7 +665,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
           <PropertyTable properties={properties} isAdmin={isSuperAdmin} />
         </WorkspaceSection>
 
-        <WorkspaceSection id="leads" className="dashboard-section">
+        {!isSuperAdmin && <WorkspaceSection id="leads" className="dashboard-section">
           <div className="dashboard-section-heading dashboard-section-heading-action">
             <div>
               <p className="kicker">CUSTOMER RELATIONSHIPS</p>
@@ -604,7 +710,49 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
               </div>
             </nav>
           )}
-        </WorkspaceSection>
+        </WorkspaceSection>}
+
+        {homeLoansEnabled && <WorkspaceSection id="home-loans" className="dashboard-section">
+          <div className="dashboard-section-heading">
+            <div>
+              <p className="kicker">FINANCING WORKSPACE</p>
+              <h2>Loans pipeline</h2>
+            </div>
+            <p className="muted">{isSuperAdmin ? "Review and manage requests across every agency." : "Track each request, follow up on documents, and keep applications moving."}</p>
+          </div>
+          <HomeLoansBoard leads={homeLoanRows} assignees={staff.map((member) => ({ id: member.id, name: member.name, agency_id: member.agency_id }))} isAdmin={isSuperAdmin} />
+        </WorkspaceSection>}
+
+        {isSuperAdmin && <WorkspaceSection id="loans" className="dashboard-section">
+          <div className="dashboard-section-heading">
+            <div><p className="kicker">AGENCY FINANCING ACCESS</p><h2>Loans by agency</h2></div>
+            <p className="muted">Enable Personal, Business, Home, LAP, and Education loans separately for each agency. Loan requests and uploaded documents stay agency-scoped and are visible to platform admins.</p>
+          </div>
+          <div className="dashboard-list">
+            {agencies.map((agency) => (
+              <section className="panel" key={agency.id} aria-label={`${agency.name} loan products`}>
+                <div className="workspace-card-heading">
+                  <div><p className="kicker">{agency.status.toUpperCase()} AGENCY · {agencyLoanProducts.filter((item) => item.agency_id === agency.id && item.enabled).length}/{LOAN_PRODUCTS.length} ACTIVE</p><h3>{agency.name}</h3></div>
+                </div>
+                <div className="agency-feature-controls">
+                  {LOAN_PRODUCTS.map((product) => <AgencyLoanProductControl key={product.id} agencyId={agency.id} product={product} enabled={agencyLoanProducts.some((item) => item.agency_id === agency.id && item.loan_type === product.id && item.enabled)} />)}
+                </div>
+              </section>
+            ))}
+            {!agencies.length && <p className="empty panel">No agencies are available to configure yet.</p>}
+          </div>
+        </WorkspaceSection>}
+
+        {toolsEnabled && <WorkspaceSection id="tools" className="dashboard-section">
+          <div className="dashboard-section-heading">
+            <div>
+              <p className="kicker">AGENCY TOOLKIT</p>
+              <h2>Property finance tools</h2>
+            </div>
+            <p className="muted">Explore estimates for loans, ownership costs, returns and property areas. Results stay in this browser.</p>
+          </div>
+          <DashboardTools />
+        </WorkspaceSection>}
 
         {toolsEnabled && <WorkspaceSection id="services" className="dashboard-section">
           <div className="dashboard-section-heading">
@@ -614,12 +762,18 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
             </div>
               <p className="muted">Keep plumbers, electricians, painters, and any other trusted local service contacts together. These stay separate from customer enquiries.</p>
           </div>
-          <div className="detail-columns service-provider-layout">
-            <div className="panel dashboard-list service-provider-list">
-              <SearchableCollection
-                label="Find a provider"
-                placeholder="Search name, trade, area, phone, or agency"
-                items={serviceProviders.map((provider) => ({
+          <div className="stack service-provider-groups">
+            {serviceProviderGroups.map((group) => <section className="panel service-provider-agency-group" key={group.id}>
+              <div className="dashboard-section-heading">
+                <div><p className="kicker">AGENCY DIRECTORY</p><h3>{group.name}</h3></div>
+                <p className="muted">{group.providers.length} service {group.providers.length === 1 ? "provider" : "providers"}</p>
+              </div>
+              <div className="detail-columns service-provider-layout">
+                <div className="dashboard-list service-provider-list">
+                  <SearchableCollection
+                    label={`Find a provider for ${group.name}`}
+                    placeholder="Search name, trade, area, or phone"
+                    items={group.providers.map((provider) => ({
                   id: provider.id,
                   search: `${provider.name} ${provider.category} ${provider.phone} ${provider.email} ${provider.service_area} ${provider.address} ${provider.notes} ${provider.agency_name || ""} ${provider.is_active ? "available" : "unavailable"}`,
                   content: (
@@ -634,7 +788,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
                       {provider.notes && <p className="service-provider-notes">{provider.notes}</p>}
                       <div className="service-provider-actions"><a href={`tel:${provider.phone}`}>Call {provider.phone}</a>{provider.email && <a href={`mailto:${provider.email}`}>Email provider</a>}</div>
                       <details className="service-provider-edit"><summary>Edit contact</summary>
-                        <ServiceProviderForm agencies={agencies} provider={provider} superAdmin={isSuperAdmin} compact />
+                        <ServiceProviderForm agencies={agencies} provider={provider} agencyId={provider.agency_id} superAdmin={isSuperAdmin} lockAgency={isSuperAdmin} compact />
                       </details>
                       <form action={deleteServiceProvider} className="service-provider-delete">
                         <input type="hidden" name="id" value={provider.id} />
@@ -643,12 +797,14 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
                     </article>
                   ),
                 }))}
-              />
-            </div>
-            <div className="service-provider-create">
-              <div><p className="kicker">ADD A LOCAL CONTACT</p><h3>New service provider</h3><p className="muted">Keep useful tradespeople easy to find for your team.</p></div>
-              <ServiceProviderForm agencies={agencies} agencyId={user.agency_id || undefined} superAdmin={isSuperAdmin} />
-            </div>
+                  />
+                </div>
+                <div className="service-provider-create">
+                  <div><p className="kicker">ADD A LOCAL CONTACT</p><h4>New service provider</h4><p className="muted">Keep useful tradespeople easy to find for this agency.</p></div>
+                  <ServiceProviderForm agencies={agencies} agencyId={group.id === "unassigned" ? undefined : group.id} superAdmin={isSuperAdmin} lockAgency={isSuperAdmin && group.id !== "unassigned"} />
+                </div>
+              </div>
+            </section>)}
           </div>
         </WorkspaceSection>}
 

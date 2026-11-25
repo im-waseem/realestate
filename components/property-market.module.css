@@ -11,12 +11,16 @@
 .card { min-width:0; border:1px solid #dfe7d7; background:white; border-radius:15px; overflow:hidden; transition:transform .2s,box-shadow .2s; }
 .card:hover { transform:translateY(-5px); box-shadow:0 12px 30px #203c2810; }
 .photo { position:relative; height:235px; display:grid; place-items:center; background:#e5ebdf; color:#748966; }
+.photoTrigger { width:100%; border:0; padding:0; cursor:pointer; text-align:inherit; }
 .photo img { object-fit:cover; transition:transform .4s; }
 .card:hover .photo img { transform:scale(1.035); }
 .intent { position:absolute; top:15px; left:15px; border-radius:6px; padding:6px 10px; background:#fffffff0; color:#3b5f35; font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.5px; }
 .cardBody { padding:22px; }
 .price { color:#325b37; font-size:21px; font-weight:600; margin:0 0 12px; }
 .cardBody h2 { font-size:17px; margin:0 0 8px; letter-spacing:-.4px; }
+.titleButton,.viewButton { border:0; padding:0; background:none; color:inherit; font:inherit; cursor:pointer; text-align:left; }
+.titleButton { font-weight:600; }
+.viewButton { font-weight:600; white-space:nowrap; }
 .cardBody>p:not(.price) { font-size:12px; color:#7f8e75; }
 .specs { display:flex; gap:14px; flex-wrap:wrap; font-size:11px; color:#6f8265; padding:16px 0; }
 .cardBody footer { display:flex; justify-content:space-between; gap:12px; border-top:1px solid #edf0e6; padding-top:16px; font-size:11px; color:#6e835e; }

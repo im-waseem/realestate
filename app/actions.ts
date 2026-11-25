@@ -79,6 +79,7 @@ function throwIfError(error: { message: string } | null) {
 const loanOptionalText = z.string().trim().max(100).transform((value) => value || null);
 const loanCreateSchema = z.object({
   agency_id: z.string().trim().min(1).max(100),
+  loan_type: z.enum(["personal_loan", "business_loan", "home_loan", "lap", "education_loan"]),
   source_lead_id: loanOptionalText,
   property_id: loanOptionalText,
   customer_name: z.string().trim().min(1).max(100),
@@ -96,6 +97,7 @@ const loanCreateSchema = z.object({
 function loanCreateValues(form: FormData) {
   return {
     agency_id: String(form.get("agency_id") || "").trim(),
+    loan_type: String(form.get("loan_type") || "home_loan"),
     source_lead_id: String(form.get("source_lead_id") || "").trim(),
     property_id: String(form.get("property_id") || "").trim(),
     customer_name: String(form.get("customer_name") || ""),
@@ -254,9 +256,10 @@ export async function register(form: FormData) {
 
 export async function createLead(form: FormData) {
   const user = await requireUser();
+  let agencyId = "";
   try {
     const requestedAgencyId = String(form.get("agency_id") || "");
-    const agencyId = user.role === "super_admin" ? requestedAgencyId : user.agency_id;
+    agencyId = user.role === "super_admin" ? requestedAgencyId : user.agency_id || "";
     if (!agencyId) throw new Error("Select an agency.");
     const supabase = await createSupabaseServerClient();
     const { data: agency, error: agencyError } = await supabase
@@ -293,7 +296,9 @@ export async function createLead(form: FormData) {
     fail("/dashboard/leads/new", error);
   }
   revalidatePath("/dashboard");
-  redirect("/dashboard?message=Customer+requirement+saved#leads");
+  redirect(user.role === "super_admin"
+    ? `/dashboard?message=Customer+requirement+saved&openAgency=${encodeURIComponent(agencyId)}#agencies`
+    : "/dashboard?message=Customer+requirement+saved#leads");
 }
 
 export async function submitAgencyQrEnquiry(form: FormData) {
@@ -557,6 +562,36 @@ export async function updateAgencyFeature(form: FormData) {
   }
   revalidatePath("/dashboard");
   revalidatePath("/dashboard/services");
+  redirect("/dashboard#agencies");
+}
+
+export async function updateAgencyLoanProduct(form: FormData) {
+  const user = await requireUser();
+  if (user.role !== "super_admin") fail("/dashboard", new Error("Only the main admin can change agency loan products."));
+  let agencyId = "";
+  try {
+    agencyId = field(form, "agency_id", 100);
+    const loanType = choice(form, "loan_type", ["personal_loan", "business_loan", "home_loan", "lap", "education_loan"] as const);
+    const enabled = choice(form, "enabled", ["true", "false"] as const) === "true";
+    const supabase = await createSupabaseServerClient();
+    const { error } = await supabase.from("agency_loan_products").upsert({ agency_id: agencyId, loan_type: loanType, enabled }, { onConflict: "agency_id,loan_type" });
+    throwIfError(error);
+    const { data: enabledRows, error: enabledError } = await supabase.from("agency_loan_products").select("loan_type").eq("agency_id", agencyId).eq("enabled", true);
+    throwIfError(enabledError);
+    const { data: agency, error: agencyReadError } = await supabase.from("agencies").select("features").eq("id", agencyId).maybeSingle();
+    throwIfError(agencyReadError);
+    if (!agency) throw new Error("Agency not found.");
+    const features = normalizeAgencyFeatures(agency.features);
+    features.home_loans = (enabledRows || []).length > 0;
+    const { error: featureError } = await supabase.from("agencies").update({ features }).eq("id", agencyId);
+    throwIfError(featureError);
+    await recordActivity(agencyId, user.name, `${enabled ? "Enabled" : "Disabled"} ${loanType.replaceAll("_", " ")}`);
+  } catch (error) {
+    fail("/dashboard", error);
+  }
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/home-loans");
+  redirect("/dashboard#loans");
 }
 
 export async function setAgencyStatus(form: FormData) {
@@ -575,6 +610,33 @@ export async function setAgencyStatus(form: FormData) {
       ? `${agency.status === "pending" ? "Approved" : "Reactivated"} agency ${agency.name}`
       : `Suspended agency ${agency.name}`;
     await recordActivity(id, user.name, action);
+  } catch (error) {
+    fail("/dashboard", error);
+  }
+  revalidatePath("/dashboard");
+  revalidatePath("/");
+}
+
+export async function setAgencyActive(form: FormData) {
+  const user = await requireUser();
+  if (user.role !== "super_admin") fail("/dashboard", new Error("Only the main admin can change agency active status."));
+  try {
+    const id = field(form, "agency_id", 100);
+    const active = form.get("is_active") === "true";
+    const supabase = await createSupabaseServerClient();
+    const { data: agency, error: agencyError } = await supabase
+      .from("agencies")
+      .select("id,name,status,is_active")
+      .eq("id", id)
+      .maybeSingle();
+    throwIfError(agencyError);
+    if (!agency) throw new Error("Agency not found.");
+    const { error } = await supabase
+      .from("agencies")
+      .update({ is_active: active, status: active ? "active" : "suspended" })
+      .eq("id", id);
+    throwIfError(error);
+    await recordActivity(id, user.name, `${active ? "Enabled" : "Disabled"} agency ${agency.name}`);
   } catch (error) {
     fail("/dashboard", error);
   }
@@ -964,6 +1026,9 @@ export async function createLoanLead(form: FormData) {
     }
 
     const supabase = await createSupabaseServerClient();
+    const { data: product, error: productError } = await supabase.from("agency_loan_products").select("enabled").eq("agency_id", agencyId).eq("loan_type", values.loan_type).maybeSingle();
+    throwIfError(productError);
+    if (!product?.enabled) return { ok: false as const, message: "This loan type is not enabled for the selected agency." };
     const { data: agency, error: agencyError } = await supabase
       .from("agencies")
       .select("id,status")
@@ -1011,6 +1076,7 @@ export async function createLoanLead(form: FormData) {
       .from("loan_leads")
       .insert({
         agency_id: agencyId,
+        loan_type: values.loan_type,
         source_lead_id: values.source_lead_id,
         property_id: values.property_id,
         customer_name: values.customer_name,

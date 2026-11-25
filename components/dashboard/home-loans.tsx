@@ -7,16 +7,9 @@ import { createLoanLead, updateLoanLead, verifyLoanDocument } from "@/app/action
 import { useToast } from "@/components/dashboard/toaster";
 import type { Lead, LoanDocument, LoanLead } from "@/lib/db";
 import styles from "./home-loans.module.css";
+import { LOAN_DOCUMENTS, LOAN_PRODUCTS, loanProductLabel, type LoanProductType } from "@/lib/loan-products";
 
 const statuses = ["new", "docs-collected", "submitted", "sanctioned", "disbursed", "rejected"] as const;
-const documentTypes = [
-  ["id", "Identity proof"],
-  ["address", "Address proof"],
-  ["income", "Income proof"],
-  ["bank_statements", "Bank statements"],
-  ["property_papers", "Property papers"],
-] as const;
-
 const money = (value: number) => new Intl.NumberFormat("en-IN", {
   style: "currency",
   currency: "INR",
@@ -140,13 +133,14 @@ export function HomeLoansBoard({
         <div className={styles.tableWrap}>
           <table>
             <thead>
-              <tr><th>Customer</th>{isAdmin && <th>Agency</th>}<th>Loan request</th><th>Stage</th><th>Assignee</th><th /></tr>
+              <tr><th>Customer</th>{isAdmin && <th>Agency</th>}<th>Loan type</th><th>Loan request</th><th>Stage</th><th>Assignee</th><th /></tr>
             </thead>
             <tbody>
               {filtered.map((lead) => (
                 <tr key={lead.id}>
                   <td><strong>{lead.customer_name}</strong><small>{lead.phone}{lead.email ? ` · ${lead.email}` : ""}</small></td>
                   {isAdmin && <td>{lead.agency_name || "—"}</td>}
+                  <td>{loanProductLabel(lead.loan_type)}</td>
                   <td><strong>{money(lead.loan_amount)}</strong><small>{lead.city}{lead.property_title ? ` · ${lead.property_title}` : ""}</small></td>
                   <td><span className={styles.status} data-status={lead.status}>{readableStatus(lead.status)}</span></td>
                   <td>{lead.assignee_name || "Unassigned"}</td>
@@ -178,7 +172,7 @@ export function HomeLoansBoard({
           <>
             <header className={styles.drawerHeader}>
               <div>
-                <p className="kicker">HOME-LOAN REQUEST</p>
+                <p className="kicker">{loanProductLabel(selectedLead.loan_type).toUpperCase()} REQUEST</p>
                 <h2 id={`loan-title-${selectedLead.id}`}>{selectedLead.customer_name}</h2>
                 <p>{selectedLead.agency_name ? `${selectedLead.agency_name} · ` : ""}{selectedLead.city}</p>
               </div>
@@ -223,7 +217,8 @@ export function HomeLoansBoard({
                 <div><p className="kicker">SECURE DOCUMENTS</p><h3>Document checklist</h3></div>
                 <small>Private files · PDF, JPEG, PNG or WebP · up to 10 MB</small>
               </div>
-              {documentTypes.map(([docType, label]) => {
+              <p className={styles.noDocuments}>Typical starting checklist based on Ruloans guidance. The lender may request additional documents for the applicant and product.</p>
+              {LOAN_DOCUMENTS[selectedLead.loan_type].map(([docType, label]) => {
                 const documents = selectedLead.documents.filter((document) => document.doc_type === docType);
                 return (
                   <div className={styles.documentRow} key={docType}>
@@ -275,6 +270,7 @@ export function NewHomeLoanForm({
   initialAgencyId,
   initialPropertyId,
   sourceLead,
+  enabledProductsByAgency,
 }: {
   agencies: AgencyOption[];
   properties: PropertyOption[];
@@ -283,10 +279,12 @@ export function NewHomeLoanForm({
   initialAgencyId: string;
   initialPropertyId: string;
   sourceLead?: SourceLead;
+  enabledProductsByAgency: Record<string, LoanProductType[]>;
 }) {
   const [agencyId, setAgencyId] = useState(initialAgencyId);
   const [propertyId, setPropertyId] = useState(initialPropertyId);
   const [city, setCity] = useState(properties.find((property) => property.id === initialPropertyId)?.city || "");
+  const enabledProducts = enabledProductsByAgency[agencyId] || [];
   const [pending, startTransition] = useTransition();
   const toast = useToast();
   const router = useRouter();
@@ -323,6 +321,11 @@ export function NewHomeLoanForm({
       {sourceLead && <input type="hidden" name="source_lead_id" value={sourceLead.id} />}
 
       <div className={styles.formGrid}>
+        <label>Loan type
+          <select key={agencyId} name="loan_type" defaultValue={enabledProducts.includes("home_loan") ? "home_loan" : enabledProducts[0]} required>
+            {LOAN_PRODUCTS.filter((product) => enabledProducts.includes(product.id)).map((product) => <option key={product.id} value={product.id}>{product.label}</option>)}
+          </select>
+        </label>
         <label>Customer name<input name="customer_name" defaultValue={sourceLead?.name || ""} maxLength={100} required /></label>
         <label>Mobile number<input name="phone" type="tel" defaultValue={sourceLead?.phone || ""} maxLength={25} required /></label>
         <label>Email (optional)<input name="email" type="email" defaultValue={sourceLead?.email || ""} maxLength={254} /></label>

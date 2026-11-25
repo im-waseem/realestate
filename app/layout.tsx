@@ -2,6 +2,7 @@
 import localFont from "next/font/local";
 import "./globals.css";
 import { ToasterProvider } from "@/components/dashboard/toaster";
+import { Analytics } from "@vercel/analytics/next";
 
 const inter = localFont({
   src: "../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2",
@@ -35,7 +36,7 @@ export const viewport: Viewport = { width: "device-width", initialScale: 1, them
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en-IN" className={inter.variable}>
-      <body className="app-body"><ToasterProvider>{children}</ToasterProvider></body>
+      <body className="app-body"><ToasterProvider>{children}</ToasterProvider><Analytics /></body>
     </html>
   );
 }

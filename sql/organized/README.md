@@ -52,6 +52,9 @@ All migration files must be applied sequentially by their filename prefix (YYYYM
 | 15 | `20261125_agency_feature_flags.sql` | Agency feature flags (home_loans, tools) |
 | 16 | `20261126_home_loans.sql` | Loan leads and loan documents tables + RLS |
 | 17 | `20261127_property_public_visibility.sql` | Public visibility control for properties + public service providers |
+| 18 | `20261128_agency_enable_disable.sql` | Agency enable/disable status flag |
+| 19 | `20261129_agency_record_limits.sql` | Maximum 30 properties, enquiries, and service providers per agency |
+| 20 | `20261130_agency_loan_products.sql` | Agency-scoped loan categories and secure loan-document checklists |
 
 ### `06-modules/` — Reusable Module Functions
 | File | Description |
@@ -66,7 +69,7 @@ All migration files must be applied sequentially by their filename prefix (YYYYM
 2. `03-provisioning/provision-super-admin.postgres.sql`
 3. `03-provisioning/provision-demo-agency.postgres.sql`
 4. `02-seeds/demo-data.postgres.sql`
-5. `05-migrations/` — apply all 17 files in numeric order (including `20261127_property_public_visibility.sql`)
+5. `05-migrations/` — apply all 19 files in numeric order
 6. `06-modules/` — apply all 3 module files
 7. `02-seeds/seed-demo-properties-babywaseem786.postgres.sql` (optional)
 

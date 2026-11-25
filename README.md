@@ -64,6 +64,8 @@ removed from the dashboard UI.
   provider create, read, update, and delete access.
 - `sql/migrations/20261125_agency_feature_flags.sql`: default-off agency feature
   flags and service-provider access control.
+- `sql/migrations/20261129_agency_record_limits.sql`: database-enforced limit of
+  30 properties, 30 customer enquiries, and 30 service providers per agency.
 - `sql/modules/`: separate feature SQL files for review; use the combined
   migration to install atomically.
 - `sql/provision-super-admin.postgres.sql`: edit the example email and run for

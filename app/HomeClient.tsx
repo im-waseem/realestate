@@ -4,12 +4,15 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { logout } from "@/app/actions";
+import { PropertyDetailsDialog, type PropertyDetails } from "@/components/property-details-dialog";
 
 export type Home = {
   id: string; name: string; location: string; price: number;
   beds: number; baths: number; area: number; image: string | null; type: string;
   intent?: string; status?: string; workspaceHref?: string;
   floorNumber: number; totalFloors: number | null; carParking: number; twoWheelerParking: number;
+  description?: string; amenities?: string; furnishing?: string; ageYears?: number | null;
+  lat?: number | null; lng?: number | null; address?: string; ownerName?: string; ownerPhone?: string; ownerEmail?: string;
 };
 type IconName = "arrow" | "search" | "pin" | "heart" | "menu" | "close" | "home" | "check" | "bed" | "area";
 function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
@@ -32,18 +35,45 @@ const money = (value: number) => new Intl.NumberFormat("en-IN", { style: "curren
 
 function PropertyCard({ home, agencyWorkspace = false }: { home: Home; agencyWorkspace?: boolean }) {
   const [imageFailed, setImageFailed] = useState(false);
-  const href = home.workspaceHref || `/properties/${home.id}`;
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const propertyDetails: PropertyDetails = {
+    title: home.name,
+    intent: home.intent || "sale",
+    type: home.type,
+    price: home.price,
+    beds: home.beds,
+    baths: home.baths,
+    area: home.area,
+    locality: home.location.split(",")[0] || home.location,
+    city: home.location.split(",").slice(1).join(",").trim(),
+    description: home.description,
+    amenities: home.amenities,
+    furnishing: home.furnishing,
+    floor_number: home.floorNumber,
+    total_floors: home.totalFloors,
+    car_parking: home.carParking,
+    two_wheeler_parking: home.twoWheelerParking,
+    age_years: home.ageYears,
+    status: home.status,
+    lat: home.lat,
+    lng: home.lng,
+    address: home.address,
+    owner_name: home.ownerName,
+    owner_phone: home.ownerPhone,
+    owner_email: home.ownerEmail,
+    publicView: !agencyWorkspace,
+  };
   return (
     <article className="home-card">
       <div className="home-card-visual">
-        <Link href={href} className="home-card-image" aria-label={`${agencyWorkspace ? "Manage" : "View"} ${home.name}`}>
+        <button type="button" className="home-card-image home-card-image-button" onClick={() => setDetailsOpen(true)} aria-label={`View ${home.name}`}>
           {home.image && !imageFailed ? <Image src={home.image} alt={home.name} fill sizes="(max-width: 640px) 100vw, (max-width: 1000px) 50vw, 33vw" onError={() => setImageFailed(true)} /> : <span className="photo-unavailable"><Icon name="home" size={36} /><span>Photos coming soon</span></span>}
-        </Link>
+        </button>
         <span className="home-card-tag">{agencyWorkspace ? home.status : `For ${home.intent || "sale"}`}</span>
       </div>
       <div className="home-card-body">
         <p className="home-card-price">{money(home.price)}</p>
-        <h3><Link href={href}>{home.name}</Link></h3>
+        <h3><button type="button" className="home-card-title-button" onClick={() => setDetailsOpen(true)}>{home.name}</button></h3>
         <p className="home-card-location"><Icon name="pin" size={16} />{home.location}</p>
         <div className="home-card-specs"><span><Icon name="bed" size={17} />{home.beds} beds</span><span>{home.baths} baths</span><span><Icon name="area" size={16} />{home.area.toLocaleString("en-IN")} sq ft</span></div>
         <p className="home-card-extra">
@@ -51,7 +81,12 @@ function PropertyCard({ home, agencyWorkspace = false }: { home: Home; agencyWor
           {home.totalFloors ? ` of ${home.totalFloors}` : ""}
           · {home.carParking} car · {home.twoWheelerParking} two-wheeler parking
         </p>
+        <div className="home-card-actions">
+          <button type="button" className="home-card-details-button" onClick={() => setDetailsOpen(true)}>View details</button>
+          {agencyWorkspace && home.workspaceHref && <Link href={home.workspaceHref}>Edit property</Link>}
+        </div>
       </div>
+      {detailsOpen && <PropertyDetailsDialog property={propertyDetails} onClose={() => setDetailsOpen(false)} />}
     </article>
   );
 }
@@ -146,9 +181,14 @@ export default function HomeClient({
 
         {!agencyName && <div className="home-search-wrap">
           <form className="home-search" action="/properties" method="get" aria-label="Find a property">
-            <input type="hidden" name="intent" value="sale" />
+            <fieldset className="search-purpose">
+              <legend>Looking to</legend>
+              <label><input type="radio" name="intent" value="sale" defaultChecked /><span>Buy</span></label>
+              <label><input type="radio" name="intent" value="rent" /><span>Rent</span></label>
+              <label><input type="radio" name="intent" value="" /><span>All</span></label>
+            </fieldset>
             <label className="home-search-field"><span>YOUR NEIGHBOURHOOD</span><span className="home-search-input"><Icon name="pin" size={19} /><input name="q" type="search" placeholder="City or locality" maxLength={100} /></span></label>
-            <label className="home-search-field home-bedrooms"><span>ROOM TO GROW</span><select name="beds" defaultValue=""><option value="">Any bedrooms</option>{[1, 2, 3, 4, 5].map(number => <option key={number} value={number}>{number}+ bedrooms</option>)}</select></label>
+            <label className="home-search-field home-bedrooms"><span>ROOM TO GROW</span><select name="beds" defaultValue="0"><option value="0">Any bedrooms</option>{[1, 2, 3, 4, 5].map(number => <option key={number} value={number}>{number}+ bedrooms</option>)}</select></label>
             <button className="home-button" type="submit"><Icon name="search" size={18} />Find a home</button>
           </form>
           <div className="home-assurances"><span><Icon name="check" size={15} />Agency-managed listings</span><span><Icon name="check" size={15} />Private agency workspaces</span><span><Icon name="check" size={15} />Secure team access</span></div>
@@ -156,10 +196,10 @@ export default function HomeClient({
 
         {agencyName ? (
           <section id="discover" className="home-section discover-section" aria-labelledby="discover-heading" data-reveal>
-            <div className="home-section-heading"><div><p className="home-eyebrow">PRIVATE PROPERTY WORKSPACES</p><h2 id="discover-heading">Your listings. Your workspace.</h2><p>{agencyName} workspace includes all your listings. Published properties also appear in the public catalogue. Select a listing to manage it.</p></div><Link href="/dashboard/properties" className="home-link">Manage all properties <Icon name="arrow" size={19} /></Link></div>
+            <div className="home-section-heading"><div><p className="home-eyebrow">PRIVATE PROPERTY WORKSPACES</p><h2 id="discover-heading">Your listings. Your workspace.</h2><p>{agencyName} workspace includes all your listings. Published properties also appear in the public catalogue. Open a listing to see its details, or choose edit to update it.</p></div><Link href="/dashboard/properties" className="home-link">Manage all properties <Icon name="arrow" size={19} /></Link></div>
             {visible.length ? <div className="home-property-grid">{visible.map(home => <PropertyCard key={home.id} home={home} agencyWorkspace />)}</div> : <div className="home-empty"><span className="home-empty-icon"><Icon name="home" size={30} /></span><h3>No properties yet.</h3><p>Add your agency&apos;s first property to see it here.</p><Link href="/dashboard/properties/new" className="home-button home-button-outline">Add a property <Icon name="arrow" size={18} /></Link></div>}
           </section>
-        ) : <section className="home-section discover-section" aria-labelledby="public-listings-heading" data-reveal><div className="home-section-heading"><div><p className="home-eyebrow">FIND YOUR NEXT CHAPTER</p><h2 id="public-listings-heading">Fresh spaces. New possibilities.</h2><p>Discover available properties from active agencies.</p></div><Link href="/properties" className="home-link">Explore all properties →</Link></div>{visible.length ? <div className="home-property-grid">{visible.map(home => <PropertyCard key={home.id} home={home} />)}</div> : <div className="home-empty"><h3>New listings are on their way.</h3><p>Explore the catalogue or register your agency to add a property.</p><Link href="/properties" className="home-button">Browse properties →</Link></div>}</section>}
+        ) : <section className="home-section discover-section" aria-labelledby="public-listings-heading" data-reveal><div className="home-section-heading"><div><p className="home-eyebrow">FIND YOUR NEXT CHAPTER</p><h2 id="public-listings-heading">Fresh spaces. New possibilities.</h2><p>Discover available homes from active agencies. Select any listing to see its details and neighbourhood map.</p></div><div className="home-listing-cta"><span className="home-listing-count">{visible.length ? `Showing ${visible.length} of ${homes.length} listings` : "New listings arriving soon"}</span><Link href="/properties" className="home-link">Explore all properties →</Link></div></div>{visible.length ? <div className="home-property-grid">{visible.map(home => <PropertyCard key={home.id} home={home} />)}</div> : <div className="home-empty"><h3>New listings are on their way.</h3><p>Explore the catalogue or register your agency to add a property.</p><Link href="/properties" className="home-button">Browse properties →</Link></div>}</section>}
 
         {agencyName ? (
           <section className="home-section home-agency-contact" aria-labelledby="agency-contact-heading">
