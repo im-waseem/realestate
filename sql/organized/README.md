@@ -51,11 +51,12 @@ All migration files must be applied sequentially by their filename prefix (YYYYM
 | 14 | `20261124_agency_uploads_hardening.sql` | Updated_at timestamps + upload indexing + delete agency fix |
 | 15 | `20261125_agency_feature_flags.sql` | Agency feature flags (home_loans, tools) |
 | 16 | `20261126_home_loans.sql` | Loan leads and loan documents tables + RLS |
+| 17 | `20261127_property_public_visibility.sql` | Public visibility control for properties + public service providers |
 
 ### `06-modules/` — Reusable Module Functions
 | File | Description |
 |------|-------------|
-| `01-public-catalog.sql` | Public property search function + photo access check |
+| `01-public-catalog.sql` | Public property search function + photo access check + public service providers |
 | `02-public-enquiries.sql` | Public enquiry submission function |
 | `03-agency-map.sql` | Agency update timestamp trigger |
 
@@ -65,7 +66,7 @@ All migration files must be applied sequentially by their filename prefix (YYYYM
 2. `03-provisioning/provision-super-admin.postgres.sql`
 3. `03-provisioning/provision-demo-agency.postgres.sql`
 4. `02-seeds/demo-data.postgres.sql`
-5. `05-migrations/` — apply all 16 files in numeric order
+5. `05-migrations/` — apply all 17 files in numeric order (including `20261127_property_public_visibility.sql`)
 6. `06-modules/` — apply all 3 module files
 7. `02-seeds/seed-demo-properties-babywaseem786.postgres.sql` (optional)
 

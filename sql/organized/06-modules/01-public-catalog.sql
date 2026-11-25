@@ -1,4 +1,6 @@
 -- Curated public projection only. Workspace tables retain their existing RLS.
+-- Only properties that are published, publicly visible (admin approved),
+-- and have intent 'sale' (buy) or 'rent' (sell) are shown on the website.
 CREATE OR REPLACE FUNCTION public.realty_public_properties(
   search_text TEXT DEFAULT '', listing_intent TEXT DEFAULT '', property_type TEXT DEFAULT '',
   minimum_price DOUBLE PRECISION DEFAULT 0, maximum_price DOUBLE PRECISION DEFAULT 1000000000000,
@@ -17,7 +19,10 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
  round(p.lat::numeric,2)::double precision,round(p.lng::numeric,2)::double precision,
  a.name,count(*) OVER()
  FROM public.properties p JOIN public.agencies a ON a.id=p.agency_id
- WHERE p.status='published' AND a.status='active'
+ WHERE p.status='published'
+    AND p.publicly_visible = TRUE
+    AND p.intent IN ('sale', 'rent')
+    AND a.status='active'
  AND (target_id='' OR p.id=target_id)
  AND (listing_intent='' OR p.intent=listing_intent)
  AND (property_type='' OR p.type=property_type)
@@ -36,9 +41,27 @@ RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
  SELECT EXISTS (
  SELECT 1 FROM public.uploads u JOIN public.properties p ON p.agency_id=u.agency_id
  JOIN public.agencies a ON a.id=p.agency_id
- WHERE u.name=photo_name AND p.status='published' AND a.status='active'
+ WHERE u.name=photo_name AND p.status='published' AND p.publicly_visible = TRUE AND a.status='active'
  AND p.images::jsonb ? ('/media/'||photo_name)
  );
 $$;
 REVOKE ALL ON FUNCTION public.realty_public_photo_allowed(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.realty_public_photo_allowed(TEXT) TO anon,authenticated;
+
+-- Public service providers visible across all agencies (painter, plumber, electrician, etc.)
+CREATE OR REPLACE FUNCTION public.realty_public_service_providers(
+  category TEXT DEFAULT '', service_area TEXT DEFAULT ''
+) RETURNS TABLE (
+  id TEXT, agency_id TEXT, name TEXT, category TEXT, phone TEXT,
+  email TEXT, service_area TEXT, address TEXT, is_active BOOLEAN, created_at TIMESTAMPTZ
+)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+  SELECT sp.id, sp.agency_id, sp.name, sp.category, sp.phone, sp.email,
+         sp.service_area, sp.address, sp.is_active, sp.created_at
+  FROM public.service_providers sp
+  WHERE sp.is_active = TRUE
+    AND (category = '' OR sp.category ILIKE '%' || category || '%')
+    AND (service_area = '' OR sp.service_area ILIKE '%' || service_area || '%');
+$$;
+REVOKE ALL ON FUNCTION public.realty_public_service_providers(TEXT, TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.realty_public_service_providers(TEXT, TEXT) TO anon,authenticated;

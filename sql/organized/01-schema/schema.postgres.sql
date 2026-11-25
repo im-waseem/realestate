@@ -81,6 +81,9 @@ CREATE TABLE IF NOT EXISTS public.properties (
   two_wheeler_parking INTEGER NOT NULL DEFAULT 0 CHECK (two_wheeler_parking BETWEEN 0 AND 100),
   furnishing TEXT NOT NULL DEFAULT 'unfurnished' CHECK (furnishing IN ('furnished', 'semi_furnished', 'unfurnished', 'not_applicable')),
   age_years INTEGER CHECK (age_years BETWEEN 0 AND 200),
+  publicly_visible BOOLEAN NOT NULL DEFAULT FALSE,
+  publicly_visible_by UUID REFERENCES public.profiles(id),
+  publicly_visible_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT properties_floor_range CHECK (total_floors IS NULL OR floor_number <= total_floors)
 );
@@ -236,6 +239,9 @@ ALTER TABLE public.properties ADD COLUMN IF NOT EXISTS car_parking INTEGER NOT N
 ALTER TABLE public.properties ADD COLUMN IF NOT EXISTS two_wheeler_parking INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE public.properties ADD COLUMN IF NOT EXISTS furnishing TEXT NOT NULL DEFAULT 'unfurnished';
 ALTER TABLE public.properties ADD COLUMN IF NOT EXISTS age_years INTEGER;
+ALTER TABLE public.properties ADD COLUMN IF NOT EXISTS publicly_visible BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE public.properties ADD COLUMN IF NOT EXISTS publicly_visible_by UUID REFERENCES public.profiles(id);
+ALTER TABLE public.properties ADD COLUMN IF NOT EXISTS publicly_visible_at TIMESTAMPTZ;
 
 DO $constraints$
 BEGIN

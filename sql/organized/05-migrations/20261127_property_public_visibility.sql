@@ -1,0 +1,111 @@
+-- Existing projects: apply after 20261126_home_loans.sql.
+-- Adds public visibility control for properties (admin approval required)
+-- and makes service providers visible across all agencies.
+BEGIN;
+
+-- 1. Add public visibility columns to properties
+ALTER TABLE public.properties
+  ADD COLUMN IF NOT EXISTS publicly_visible BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS publicly_visible_by UUID REFERENCES public.profiles(id),
+  ADD COLUMN IF NOT EXISTS publicly_visible_at TIMESTAMPTZ;
+
+-- 2. Update realty_public_properties to only show admin-approved, publicly visible
+--    properties with intent 'sale' (buy) or 'rent' (sell)
+CREATE OR REPLACE FUNCTION public.realty_public_properties(
+  search_text TEXT DEFAULT '',
+  listing_intent TEXT DEFAULT '',
+  property_type TEXT DEFAULT '',
+  minimum_price DOUBLE PRECISION DEFAULT 0,
+  maximum_price DOUBLE PRECISION DEFAULT 1000000000000,
+  minimum_beds INTEGER DEFAULT 0,
+  page_number INTEGER DEFAULT 1,
+  target_id TEXT DEFAULT ''
+) RETURNS TABLE (
+  id TEXT, title TEXT, intent TEXT, type TEXT, price DOUBLE PRECISION, beds INTEGER,
+  baths INTEGER, area DOUBLE PRECISION, locality TEXT, city TEXT, description TEXT,
+  amenities TEXT, images TEXT, floor_number INTEGER, total_floors INTEGER,
+  car_parking INTEGER, two_wheeler_parking INTEGER, furnishing TEXT, age_years INTEGER,
+  map_lat DOUBLE PRECISION, map_lng DOUBLE PRECISION, agency_name TEXT, total_count BIGINT
+)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+ SELECT p.id,p.title,p.intent,p.type,p.price,p.beds,p.baths,p.area,p.locality,p.city,
+  p.description,p.amenities,p.images,p.floor_number,p.total_floors,p.car_parking,
+  p.two_wheeler_parking,p.furnishing,p.age_years,
+  round(p.lat::numeric,2)::double precision,round(p.lng::numeric,2)::double precision,
+  a.name,count(*) OVER()
+  FROM public.properties p JOIN public.agencies a ON a.id=p.agency_id
+  WHERE p.status='published'
+    AND p.publicly_visible = TRUE
+    AND p.intent IN ('sale', 'rent')
+    AND a.status='active'
+    AND (target_id='' OR p.id=target_id)
+    AND (listing_intent='' OR p.intent=listing_intent)
+    AND (property_type='' OR p.type=property_type)
+    AND p.price BETWEEN greatest(minimum_price,0) AND maximum_price
+    AND p.beds>=greatest(minimum_beds,0)
+    AND (search_text='' OR strpos(lower(p.title||' '||p.city||' '||p.locality),lower(left(search_text,100)))>0)
+  ORDER BY p.created_at DESC,p.id
+  LIMIT 12 OFFSET (least(greatest(page_number,1),10000)-1)*12;
+$$;
+REVOKE ALL ON FUNCTION public.realty_public_properties(TEXT,TEXT,TEXT,DOUBLE PRECISION,DOUBLE PRECISION,INTEGER,INTEGER,TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.realty_public_properties(TEXT,TEXT,TEXT,DOUBLE PRECISION,DOUBLE PRECISION,INTEGER,INTEGER,TEXT) TO anon,authenticated;
+
+-- 3. Create admin function to approve/reject property public visibility
+CREATE OR REPLACE FUNCTION public.realty_approve_property_visibility(
+  target_property_id TEXT,
+  approved BOOLEAN
+) RETURNS VOID
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+BEGIN
+  IF NOT public.realty_is_super_admin() THEN
+    RAISE EXCEPTION 'Only super admin can approve property visibility';
+  END IF;
+
+  UPDATE public.properties
+  SET publicly_visible = approved,
+      publicly_visible_by = (SELECT auth.uid()),
+      publicly_visible_at = CASE WHEN approved THEN CURRENT_TIMESTAMP ELSE NULL END
+  WHERE id = target_property_id;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Property not found';
+  END IF;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.realty_approve_property_visibility(TEXT, BOOLEAN) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.realty_approve_property_visibility(TEXT, BOOLEAN) TO authenticated;
+
+-- 4. Make service providers publicly visible across all agencies
+--    (clients can see painter, plumber, electrician, etc. from any agency)
+CREATE OR REPLACE FUNCTION public.realty_public_service_providers(
+  category TEXT DEFAULT '',
+  service_area TEXT DEFAULT ''
+) RETURNS TABLE (
+  id TEXT, agency_id TEXT, name TEXT, category TEXT, phone TEXT,
+  email TEXT, service_area TEXT, address TEXT, is_active BOOLEAN, created_at TIMESTAMPTZ
+)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+  SELECT sp.id, sp.agency_id, sp.name, sp.category, sp.phone, sp.email,
+         sp.service_area, sp.address, sp.is_active, sp.created_at
+  FROM public.service_providers sp
+  WHERE sp.is_active = TRUE
+    AND (category = '' OR sp.category ILIKE '%' || category || '%')
+    AND (service_area = '' OR sp.service_area ILIKE '%' || service_area || '%');
+$$;
+REVOKE ALL ON FUNCTION public.realty_public_service_providers(TEXT, TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.realty_public_service_providers(TEXT, TEXT) TO anon,authenticated;
+
+-- 5. Add public read policy on service_providers so any authenticated user can see active providers
+DROP POLICY IF EXISTS service_providers_public_read ON public.service_providers;
+CREATE POLICY service_providers_public_read ON public.service_providers
+FOR SELECT TO anon, authenticated
+USING (is_active = TRUE);
+
+-- 6. Add index for faster public service provider lookups
+CREATE INDEX IF NOT EXISTS service_providers_public_category_idx
+  ON public.service_providers (category, is_active) WHERE is_active = TRUE;
+CREATE INDEX IF NOT EXISTS service_providers_public_area_idx
+  ON public.service_providers (service_area, is_active) WHERE is_active = TRUE;
+
+NOTIFY pgrst, 'reload schema';
+COMMIT;
