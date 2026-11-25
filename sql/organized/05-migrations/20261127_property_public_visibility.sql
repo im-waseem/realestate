@@ -75,11 +75,84 @@ $$;
 REVOKE ALL ON FUNCTION public.realty_approve_property_visibility(TEXT, BOOLEAN) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.realty_approve_property_visibility(TEXT, BOOLEAN) TO authenticated;
 
--- 4. Make service providers publicly visible across all agencies
---    (clients can see painter, plumber, electrician, etc. from any agency)
+-- 4. Service providers: keep workspace RLS for agency-level management
+--    Agency admins/agents can manage their own agency's service providers
+ALTER TABLE public.service_providers ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS service_providers_read_workspace ON public.service_providers;
+DROP POLICY IF EXISTS service_providers_insert_workspace ON public.service_providers;
+DROP POLICY IF EXISTS service_providers_update_workspace ON public.service_providers;
+DROP POLICY IF EXISTS service_providers_delete_workspace ON public.service_providers;
+
+-- Workspace: agency users see only their own agency's active providers
+CREATE POLICY service_providers_read_workspace ON public.service_providers
+FOR SELECT TO authenticated
+USING (
+  public.realty_is_super_admin()
+  OR (
+    agency_id = (SELECT public.realty_current_agency_id())
+    AND public.realty_current_role() IN ('agency_admin', 'agent')
+    AND public.realty_agency_is_active(agency_id)
+  )
+);
+
+-- Workspace: agency users can insert their own agency's providers
+CREATE POLICY service_providers_insert_workspace ON public.service_providers
+FOR INSERT TO authenticated
+WITH CHECK (
+  public.realty_is_super_admin()
+  OR (
+    agency_id = (SELECT public.realty_current_agency_id())
+    AND public.realty_current_role() IN ('agency_admin', 'agent')
+    AND public.realty_agency_is_active(agency_id)
+  )
+);
+
+-- Workspace: agency users can update their own agency's providers
+CREATE POLICY service_providers_update_workspace ON public.service_providers
+FOR UPDATE TO authenticated
+USING (
+  public.realty_is_super_admin()
+  OR (
+    agency_id = (SELECT public.realty_current_agency_id())
+    AND public.realty_current_role() IN ('agency_admin', 'agent')
+    AND public.realty_agency_is_active(agency_id)
+  )
+)
+WITH CHECK (
+  public.realty_is_super_admin()
+  OR (
+    agency_id = (SELECT public.realty_current_agency_id())
+    AND public.realty_current_role() IN ('agency_admin', 'agent')
+    AND public.realty_agency_is_active(agency_id)
+  )
+);
+
+-- Workspace: agency users can delete their own agency's providers
+CREATE POLICY service_providers_delete_workspace ON public.service_providers
+FOR DELETE TO authenticated
+USING (
+  public.realty_is_super_admin()
+  OR (
+    agency_id = (SELECT public.realty_current_agency_id())
+    AND public.realty_current_role() IN ('agency_admin', 'agent')
+    AND public.realty_agency_is_active(agency_id)
+  )
+);
+
+REVOKE ALL ON TABLE public.service_providers FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.service_providers TO authenticated;
+
+-- 5. Public service providers: visible across ALL agencies for clients
+--    (painter, plumber, electrician, etc. visible to everyone on website)
+DROP POLICY IF EXISTS service_providers_public_read ON public.service_providers;
+CREATE POLICY service_providers_public_read ON public.service_providers
+FOR SELECT TO anon, authenticated
+USING (is_active = TRUE);
+
+-- 6. Public function to browse service providers across all agencies
 CREATE OR REPLACE FUNCTION public.realty_public_service_providers(
-  category TEXT DEFAULT '',
-  service_area TEXT DEFAULT ''
+  category TEXT DEFAULT '', service_area TEXT DEFAULT ''
 ) RETURNS TABLE (
   id TEXT, agency_id TEXT, name TEXT, category TEXT, phone TEXT,
   email TEXT, service_area TEXT, address TEXT, is_active BOOLEAN, created_at TIMESTAMPTZ
@@ -95,17 +168,13 @@ $$;
 REVOKE ALL ON FUNCTION public.realty_public_service_providers(TEXT, TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.realty_public_service_providers(TEXT, TEXT) TO anon,authenticated;
 
--- 5. Add public read policy on service_providers so any authenticated user can see active providers
-DROP POLICY IF EXISTS service_providers_public_read ON public.service_providers;
-CREATE POLICY service_providers_public_read ON public.service_providers
-FOR SELECT TO anon, authenticated
-USING (is_active = TRUE);
-
--- 6. Add index for faster public service provider lookups
+-- 7. Indexes for faster public and workspace lookups
 CREATE INDEX IF NOT EXISTS service_providers_public_category_idx
   ON public.service_providers (category, is_active) WHERE is_active = TRUE;
 CREATE INDEX IF NOT EXISTS service_providers_public_area_idx
   ON public.service_providers (service_area, is_active) WHERE is_active = TRUE;
+CREATE INDEX IF NOT EXISTS service_providers_workspace_agency_idx
+  ON public.service_providers (agency_id, is_active);
 
 NOTIFY pgrst, 'reload schema';
 COMMIT;
