@@ -1,0 +1,386 @@
+.board {
+  margin-top: 28px;
+}
+
+.controls {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(180px, 260px) auto;
+  align-items: end;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.controls label,
+.editForm label,
+.createForm label {
+  display: grid;
+  gap: 7px;
+  color: #53645a;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.controls input,
+.controls select,
+.editForm select,
+.editForm textarea,
+.createForm input,
+.createForm select,
+.createForm textarea {
+  min-height: 44px;
+  border: 1px solid #dce2d4;
+  border-radius: 6px;
+  background: #fff;
+  color: #243b30;
+  padding: 10px 12px;
+  font: inherit;
+}
+
+.tableWrap {
+  overflow: auto;
+  border: 1px solid #e1e5da;
+  border-radius: 9px;
+  background: #fff;
+}
+
+.tableWrap table {
+  min-width: 760px;
+}
+
+.tableWrap td small {
+  display: block;
+  max-width: 300px;
+  overflow: hidden;
+  color: #727b75;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status {
+  display: inline-flex;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: #f0f2e9;
+  color: #58664c;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.status[data-status="sanctioned"],
+.status[data-status="disbursed"] {
+  background: #e4f0e5;
+  color: #285136;
+}
+
+.status[data-status="rejected"] {
+  background: #f7e4e0;
+  color: #9d4c3d;
+}
+
+.status[data-status="submitted"] {
+  background: #fff1d1;
+  color: #806122;
+}
+
+.detailsButton,
+.verifyButton {
+  border: 0;
+  background: transparent;
+  color: #24483d;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.empty {
+  padding: 54px 24px;
+  border: 1px dashed #cbd4c8;
+  border-radius: 10px;
+  background: #fff;
+  text-align: center;
+}
+
+.empty h2 {
+  margin: 8px 0;
+}
+
+.empty p:not(.kicker) {
+  margin: 0 auto 20px;
+  max-width: 460px;
+  color: #727b75;
+  line-height: 1.7;
+}
+
+.drawer {
+  width: min(700px, 100%);
+  height: 100dvh;
+  max-height: 100dvh;
+  margin: 0 0 0 auto;
+  padding: 28px;
+  overflow: auto;
+  border: 0;
+  background: #f8f7f2;
+  color: #263b32;
+  box-shadow: -20px 0 60px #13281b1a;
+}
+
+.drawer::backdrop {
+  background: #16231db0;
+}
+
+.drawerHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid #dedfd4;
+}
+
+.drawerHeader h2 {
+  margin: 5px 0;
+}
+
+.drawerHeader p:last-child {
+  margin: 0;
+  color: #727b75;
+  font-size: 13px;
+}
+
+.drawerHeader button {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border: 1px solid #d5dccf;
+  border-radius: 50%;
+  background: #fff;
+  font-size: 24px;
+}
+
+.summaryGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 20px 0;
+}
+
+.summaryGrid > div {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid #e1e5da;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.summaryGrid small {
+  color: #727b75;
+}
+
+.summaryGrid strong {
+  text-transform: capitalize;
+}
+
+.contact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  margin: 16px 0 24px;
+  color: #41564a;
+  font-size: 13px;
+}
+
+.contact a {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.editForm {
+  display: grid;
+  gap: 14px;
+  padding: 20px;
+  border: 1px solid #e1e5da;
+  border-radius: 9px;
+  background: #fff;
+}
+
+.editForm textarea,
+.createForm textarea {
+  min-height: 100px;
+  resize: vertical;
+}
+
+.documents {
+  margin-top: 30px;
+}
+
+.sectionHeading,
+.documentHeading,
+.documentFile {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sectionHeading {
+  align-items: flex-end;
+  margin-bottom: 14px;
+}
+
+.sectionHeading h3 {
+  margin: 4px 0 0;
+}
+
+.sectionHeading > small {
+  color: #727b75;
+  text-align: right;
+}
+
+.documentRow {
+  padding: 15px 0;
+  border-top: 1px solid #dedfd4;
+}
+
+.documentHeading {
+  margin-bottom: 10px;
+}
+
+.uploadButton {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid #cbd4c8;
+  border-radius: 5px;
+  padding: 7px 11px;
+  background: #fff;
+  color: #24483d;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.uploadButton input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.documentFile {
+  justify-content: flex-start;
+  padding: 10px 0;
+  font-size: 12px;
+}
+
+.documentFile > span:first-child {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 3px;
+  overflow-wrap: anywhere;
+}
+
+.documentFile > span:first-child small {
+  color: #727b75;
+}
+
+.documentFile > a {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.verified,
+.unverified {
+  border-radius: 999px;
+  padding: 5px 8px;
+  background: #e4f0e5;
+  color: #285136;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.unverified {
+  background: #fff1d1;
+  color: #806122;
+}
+
+.noDocuments {
+  margin: 0;
+  color: #727b75;
+  font-size: 12px;
+}
+
+.createForm {
+  margin-top: 28px;
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.privacyNote {
+  margin: 0;
+  color: #657168;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.formActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+@media (max-width: 760px) {
+  .controls {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .controls > a {
+    grid-column: 1 / -1;
+  }
+
+  .drawer {
+    padding: 20px;
+  }
+
+  .sectionHeading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .sectionHeading > small {
+    text-align: left;
+  }
+}
+
+@media (max-width: 540px) {
+  .controls,
+  .formGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .summaryGrid {
+    gap: 8px;
+  }
+
+  .documentFile {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .documentFile > span:first-child {
+    flex-basis: 100%;
+  }
+
+  .formActions {
+    flex-direction: column-reverse;
+  }
+}

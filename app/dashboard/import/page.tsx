@@ -5,6 +5,9 @@ import { WorkbookImport } from "@/components/dashboard/workbook-import";
 import { requireUser } from "@/lib/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { supabaseData } from "@/lib/supabase/results";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = { title: "Import records", robots: { index: false, follow: false } };
 
 export default async function ImportRecords({ searchParams }: { searchParams: Promise<{ kind?: string }> }) {
   const user = await requireUser();

@@ -37,7 +37,7 @@ function PropertyCard({ home, agencyWorkspace = false }: { home: Home; agencyWor
     <article className="home-card">
       <div className="home-card-visual">
         <Link href={href} className="home-card-image" aria-label={`${agencyWorkspace ? "Manage" : "View"} ${home.name}`}>
-          {home.image && !imageFailed ? <Image src={home.image} alt={home.name} fill sizes="(max-width: 640px) 100vw, (max-width: 1000px) 50vw, 33vw" unoptimized onError={() => setImageFailed(true)} /> : <span className="photo-unavailable"><Icon name="home" size={36} /><span>Photos coming soon</span></span>}
+          {home.image && !imageFailed ? <Image src={home.image} alt={home.name} fill sizes="(max-width: 640px) 100vw, (max-width: 1000px) 50vw, 33vw" onError={() => setImageFailed(true)} /> : <span className="photo-unavailable"><Icon name="home" size={36} /><span>Photos coming soon</span></span>}
         </Link>
         <span className="home-card-tag">{agencyWorkspace ? home.status : `For ${home.intent || "sale"}`}</span>
       </div>

@@ -10,6 +10,8 @@ const propertyTypes = ["Apartment", "Villa", "Independent house", "Builder floor
 const sources = ["walk_in", "phone", "website", "referral", "other"];
 const leadStatuses = ["new", "contacted", "visit scheduled", "negotiating", "closed", "lost"];
 
+class ImportInputError extends Error {}
+
 function normalizeHeader(value: string) {
   return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 }
@@ -67,7 +69,7 @@ function worksheetRows(worksheet: ExcelJS.Worksheet) {
 
 function requireColumns(headers: Map<string, number>, required: string[]) {
   const missing = required.filter((header) => !headers.has(header));
-  if (missing.length) throw new Error(`Missing columns: ${missing.join(", ")}. Download and use the matching template.`);
+  if (missing.length) throw new ImportInputError(`Missing columns: ${missing.join(", ")}. Download and use the matching template.`);
 }
 
 function propertyRow(values: (header: string) => string, agencyId: string) {
@@ -232,6 +234,8 @@ export async function POST(request: Request) {
     await supabase.from("activity").insert({ id: randomUUID(), agency_id: agencyId, actor: user.name, action: `Imported ${imported} ${kind} from a workbook` });
     return Response.json({ imported }, { status: 201 });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Spreadsheet import failed." }, { status: 400 });
+    if (error instanceof ImportInputError) return Response.json({ error: error.message }, { status: 400 });
+    console.error("Spreadsheet import failed:", error);
+    return Response.json({ error: "Spreadsheet import failed. Check the workbook and try again." }, { status: 500 });
   }
 }

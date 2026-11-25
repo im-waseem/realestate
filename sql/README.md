@@ -47,6 +47,12 @@ Apply these in order (skip a migration already applied):
 8. `migrations/20261108_service_provider_crud_access.sql`
 9. `migrations/20261109_agency_qr_service_provider_rls.sql`
 10. `migrations/20261110_agency_profile_details.sql`
+11. `migrations/20261111_property_featured.sql`
+12. `migrations/20261122_enquiry_assignment.sql`
+13. `migrations/20261123_team_invites_agency_logo.sql`
+14. `migrations/20261124_agency_uploads_hardening.sql`
+15. `migrations/20261125_agency_feature_flags.sql`
+16. `migrations/20261126_home_loans.sql`
 
 The marketplace migration contains all three feature modules in one transaction.
 The service-provider migration adds an agency-owned directory for local trades.
@@ -89,6 +95,28 @@ For reviewing each feature independently:
 
 Prefer the combined migration when installing. Do not run the legacy SQLite
 files (`schema.sql`, `demo-data.sql`) for this Supabase application.
+
+`migrations/20261125_agency_feature_flags.sql` adds the default-off
+`agencies.features` JSONB flags (`home_loans` and `tools`), restricts changing
+them to the platform admin, and gates service-provider RLS with the `tools`
+flag. It also safely restores `profiles.is_active` if an earlier account
+migration was missed. Platform-admin access is not feature-gated. Apply the
+migrations in the listed order to the same Supabase project configured by the
+application.
+The home-loans migration adds feature-gated agency pipelines, private loan
+document metadata and a private `loan-documents` storage bucket. Uploads and
+downloads go through authenticated server routes; the bucket must remain
+private. Platform admins can review documents and all agencies' loan leads.
+The `tools` flag gates `/dashboard/tools`, a browser-only suite of eight
+property-finance calculators. Its editable state/UT stamp-duty defaults are
+indicative estimates and should be checked against current local rules.
+
+The team-invites migration enables team-account deactivation and agency-logo
+uploads/display. The upload-hardening migration adds `updated_at` triggers to
+properties, leads, uploads, activity and service providers, indexes uploads by
+agency, includes the `visit` status in lead workspace policies, and fixes agency
+deletion so it removes workspace profiles and Auth accounts instead of the
+nonexistent `public.users` table.
 
 ## Verification
 

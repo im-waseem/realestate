@@ -6,7 +6,12 @@ import { EnquiryDialog } from "./enquiry-item";
 import { EnquiryRow } from "./enquiry-item";
 import enquiryStyles from "./enquiry-item.module.css";
 
-export function EnquiriesTable({ leads }: { leads: (Lead & { agency_name?: string })[] }) {
+export function EnquiriesTable({ leads, assignees, properties, homeLoansEnabled = false }: {
+  leads: (Lead & { agency_name?: string; property_title?: string; assignee_name?: string })[];
+  assignees: { id: string; name: string; agency_id: string | null }[];
+  properties: { id: string; title: string; agency_id: string }[];
+  homeLoansEnabled?: boolean;
+}) {
   const [openId, setOpenId] = useState<string | null>(null);
   const isOpen = (id: string) => openId === id;
 
@@ -18,7 +23,7 @@ export function EnquiriesTable({ leads }: { leads: (Lead & { agency_name?: strin
           <thead className={enquiryStyles.head}>
             <tr>
               <th scope="col">Customer</th>
-              <th scope="col">Agency</th>
+              <th scope="col">Assignee</th>
               <th scope="col">Contact</th>
               <th scope="col">Looking to</th>
               <th scope="col">Progress</th>
@@ -41,6 +46,9 @@ export function EnquiriesTable({ leads }: { leads: (Lead & { agency_name?: strin
         <EnquiryDialog
           key={lead.id}
           lead={lead}
+          assignees={assignees.filter((person) => person.agency_id === lead.agency_id)}
+          properties={properties.filter((property) => property.agency_id === lead.agency_id)}
+          homeLoansEnabled={homeLoansEnabled}
           open={isOpen(lead.id)}
           onClose={() => setOpenId(null)}
         />

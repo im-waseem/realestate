@@ -1,0 +1,271 @@
+.card {
+  min-width: 0;
+  padding: clamp(18px, 3vw, 30px);
+  border: 1px solid #e1e5da;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 8px 26px #203f3508;
+}
+
+.cardHeader {
+  margin-bottom: 24px;
+}
+
+.cardHeader h2 {
+  margin: 6px 0 8px;
+}
+
+.cardHeader > p:last-child {
+  max-width: 700px;
+  margin: 0;
+  color: #727b75;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.field {
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  color: #53645a;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.field input,
+.field select {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid #dce2d4;
+  border-radius: 6px;
+  background: #fcfcf9;
+  color: #243b30;
+  font: inherit;
+}
+
+.inputWrap {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  overflow: hidden;
+  border: 1px solid #dce2d4;
+  border-radius: 6px;
+  background: #fcfcf9;
+}
+
+.inputWrap input {
+  min-width: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.prefix {
+  padding-left: 12px;
+  color: #687761;
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.resultPanel {
+  margin-top: 24px;
+  padding: 20px;
+  border: 1px solid #dfe5d6;
+  border-radius: 9px;
+  background: #f7f8f2;
+}
+
+.resultHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  margin-bottom: 14px;
+}
+
+.resultHeader h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.resultActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.resultActions button {
+  border: 1px solid #cbd4c8;
+  border-radius: 5px;
+  padding: 8px 10px;
+  background: #fff;
+  color: #24483d;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.resultGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
+  gap: 12px;
+}
+
+.metric {
+  display: grid;
+  gap: 5px;
+  padding: 14px;
+  border: 1px solid #e2e7db;
+  border-radius: 7px;
+  background: #fff;
+}
+
+.metric > span,
+.metric > small {
+  color: #727b75;
+  font-size: 11px;
+}
+
+.metric strong {
+  color: #24483d;
+  font-size: clamp(17px, 2vw, 22px);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.metric > small {
+  line-height: 1.5;
+}
+
+.chartRow {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  margin-top: 20px;
+}
+
+.pieChart {
+  width: 150px;
+  height: 150px;
+  flex: 0 0 150px;
+  border-radius: 50%;
+}
+
+.legend {
+  display: grid;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.legend span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.legend i {
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+}
+
+.tableScroller {
+  max-height: 380px;
+  margin-top: 20px;
+  overflow: auto;
+  border: 1px solid #e1e5da;
+  border-radius: 7px;
+  background: #fff;
+}
+
+.tableScroller table {
+  min-width: 650px;
+  font-size: 11px;
+}
+
+.tableScroller th,
+.tableScroller td {
+  padding: 10px 12px;
+}
+
+.disclaimer {
+  margin: 15px 0 0;
+  color: #727b75;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.compareGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  gap: 14px;
+}
+
+.compareCard {
+  display: grid;
+  gap: 13px;
+  padding: 15px;
+  border: 1px solid #e1e5da;
+  border-radius: 8px;
+  background: #fcfcf9;
+}
+
+.compareCard h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.inlineControl {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.inlineControl > * {
+  max-width: 240px;
+}
+
+.simpleTable {
+  width: 100%;
+  margin-top: 16px;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 12px;
+}
+
+.simpleTable th,
+.simpleTable td {
+  padding: 12px 10px;
+  border-bottom: 1px solid #e1e5da;
+}
+
+.simpleTable th {
+  color: #687761;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+@media (max-width: 600px) {
+  .resultHeader,
+  .chartRow {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .inlineControl {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+@media print {
+  .resultActions {
+    display: none !important;
+  }
+}

@@ -4,6 +4,9 @@ import { createLead } from "@/app/actions";
 import { PlatformHeader, Notice } from "@/components/platform";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { supabaseData } from "@/lib/supabase/results";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = { title: "Add enquiry" };
 
 const sources = [
   ["walk_in", "Walk-in"],
@@ -18,6 +21,9 @@ export default async function NewLead({ searchParams }: { searchParams: Promise<
   const query = await searchParams;
   const supabase = await createSupabaseServerClient();
   let agencies: { id: string; name: string }[] = [];
+  const propertyQuery = supabase.from("properties").select("id,title,agency_id").order("title");
+  const propertyResult = user.role === "super_admin" ? await propertyQuery : await propertyQuery.eq("agency_id", user.agency_id || "");
+  const properties = supabaseData(propertyResult.data, propertyResult.error, "Unable to load properties");
   if (user.role === "super_admin") {
     const result = await supabase.from("agencies").select("id,name").order("name");
     agencies = supabaseData(result.data, result.error, "Unable to load agencies");
@@ -46,6 +52,7 @@ export default async function NewLead({ searchParams }: { searchParams: Promise<
             <label>Client area or address (optional)<input name="client_address" maxLength={500} placeholder="Locality or address" /></label>
             <label>Enquiry source<select name="source" defaultValue="walk_in">{sources.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
             <label>Looking to<select name="intent">{["buy", "sell", "rent", "lease"].map((intent) => <option key={intent}>{intent}</option>)}</select></label>
+            <label>Property (optional)<select name="property_id" defaultValue=""><option value="">No property selected</option>{properties.map((property) => <option key={property.id} value={property.id}>{property.title}</option>)}</select></label>
           </div>
           <label>Requirements<textarea name="requirements" required maxLength={2000} placeholder="Property type, preferred locality, budget, move-in date, and any other requirements." /></label>
           <button className="btn">Save customer requirement →</button>

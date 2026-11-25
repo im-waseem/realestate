@@ -9,6 +9,8 @@ export type Agency = {
   id: string;
   name: string;
   status: string;
+  features: { home_loans: boolean; tools: boolean };
+  logo_url: string;
   contact_name: string;
   contact_email: string;
   phone: string;
@@ -33,6 +35,7 @@ export type Profile = {
   email: string;
   role: "super_admin" | "agency_admin" | "agent";
   agency_id: string | null;
+  is_active: boolean;
   created_at: string;
 };
 
@@ -57,6 +60,7 @@ export type Property = {
   description: string;
   amenities: string;
   images: string;
+  featured: boolean;
   status: string;
   floor_number: number;
   total_floors: number | null;
@@ -71,6 +75,7 @@ export type Lead = {
   id: string;
   agency_id: string;
   property_id: string | null;
+  assigned_to: string | null;
   name: string;
   phone: string;
   email: string;
@@ -81,6 +86,42 @@ export type Lead = {
   status: string;
   notes: string;
   created_at: string;
+};
+
+export type LoanLead = {
+  id: string;
+  agency_id: string;
+  source_lead_id: string | null;
+  property_id: string | null;
+  customer_name: string;
+  phone: string;
+  email: string;
+  loan_amount: number;
+  monthly_income: number;
+  employment_type: "salaried" | "self_employed" | "business_owner" | "other";
+  city: string;
+  preferred_bank: string;
+  status: "new" | "docs-collected" | "submitted" | "sanctioned" | "disbursed" | "rejected";
+  assigned_to: string | null;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type LoanDocument = {
+  id: string;
+  lead_id: string;
+  agency_id: string;
+  doc_type: "id" | "address" | "income" | "bank_statements" | "property_papers";
+  file_path: string;
+  file_name: string;
+  content_type: "application/pdf" | "image/jpeg" | "image/png" | "image/webp";
+  file_size: number;
+  verified: boolean;
+  verified_by: string | null;
+  verified_at: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export type ServiceProvider = {
@@ -118,6 +159,8 @@ export interface Database {
       profiles: Table<Profile>;
       properties: Table<Property>;
       leads: Table<Lead>;
+      loan_leads: Table<LoanLead>;
+      loan_documents: Table<LoanDocument>;
       service_providers: Table<ServiceProvider>;
       activity: Table<Activity>;
       uploads: Table<Upload>;
@@ -129,7 +172,7 @@ export interface Database {
         Returns: PublicProperty[];
       };
       realty_public_photo_allowed: { Args: { photo_name: string }; Returns: boolean };
-      realty_public_agency: { Args: { target_agency_id: string }; Returns: { id: string; name: string; phone: string; address: string; lat: number | null; lng: number | null }[] };
+      realty_public_agency: { Args: { target_agency_id: string }; Returns: { id: string; name: string; phone: string; whatsapp: string; logo_url: string; address: string; lat: number | null; lng: number | null }[] };
       realty_submit_public_enquiry: { Args: { target_id: string; customer_name: string; customer_phone: string; customer_email: string; customer_message: string }; Returns: undefined };
       realty_submit_agency_enquiry: { Args: { target_agency_id: string; customer_name: string; customer_phone: string; customer_email: string; enquiry_intent: string; customer_message: string }; Returns: undefined };
       realty_owner_phone_registered_elsewhere: { Args: { target_phone: string; target_agency_id: string; excluded_property_id?: string | null }; Returns: boolean };

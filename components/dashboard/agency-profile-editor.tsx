@@ -29,6 +29,9 @@ export function AgencyProfileEditor({ agency, superAdmin = false }: { agency: Ag
   const [results, setResults] = useState<LocationResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [message, setMessage] = useState("");
+  const [logoUrl, setLogoUrl] = useState(agency.logo_url || "");
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [logoMessage, setLogoMessage] = useState("");
   const valid = lat !== "" && lng !== "" && Number.isFinite(Number(lat)) && Number.isFinite(Number(lng)) && Math.abs(Number(lat)) <= 85 && Math.abs(Number(lng)) <= 180;
   const center = project(valid ? Number(lat) : 22, valid ? Number(lng) : 79, zoom);
   function selectLocation(latitude: number, longitude: number) { setLat(latitude.toFixed(6)); setLng(longitude.toFixed(6)); setConfirmed(true); setMessage("Pin selected. Save to update your agency office location."); }
@@ -44,6 +47,21 @@ export function AgencyProfileEditor({ agency, superAdmin = false }: { agency: Ag
     } catch { setMessage("Address search is unavailable. You can still choose the pin on the map or enter coordinates."); }
     finally { setSearching(false); }
   }
+  async function uploadLogo(file: File | undefined) {
+    if (!file) return;
+    setUploadingLogo(true); setLogoMessage("");
+    try {
+      const form = new FormData(); form.set("file", file);
+      if (superAdmin) form.set("agency_id", agency.id);
+      const response = await fetch("/api/uploads", { method: "POST", body: form });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Logo upload failed.");
+      setLogoUrl(result.url);
+      setLogoMessage("Logo uploaded. Save the profile to keep this change.");
+    } catch (error) {
+      setLogoMessage(error instanceof Error ? error.message : "Logo upload failed.");
+    } finally { setUploadingLogo(false); }
+  }
   return <form action={updateAgencyProfile} className={`stack agency-profile-form ${styles.editor}`}>
     <p className="kicker">AGENCY PROFILE & OFFICE LOCATION</p>
     {superAdmin && <input type="hidden" name="agency_id" value={agency.id} />}
@@ -53,6 +71,10 @@ export function AgencyProfileEditor({ agency, superAdmin = false }: { agency: Ag
     <label>Business email<input name="contact_email" type="email" defaultValue={agency.contact_email || ""} maxLength={254} required /></label>
     <label>Phone<input name="phone" type="tel" defaultValue={agency.phone} maxLength={25} required /></label>
     <label>WhatsApp number<input name="whatsapp" type="tel" defaultValue={agency.whatsapp || ""} maxLength={25} /></label>
+    <label>Agency logo<input type="file" accept="image/jpeg,image/png,image/webp" disabled={uploadingLogo} onChange={event => { void uploadLogo(event.target.files?.[0]); event.currentTarget.value = ""; }} /><small>JPEG, PNG, or WebP up to 5 MB.</small></label>
+    <label>Logo image URL<input name="logo_url" value={logoUrl} onChange={event => setLogoUrl(event.target.value)} maxLength={1000} placeholder="Upload a logo or paste an HTTPS image URL" /></label>
+    {logoUrl && <div className={styles.wide}><Image src={logoUrl} alt={`${agency.name} logo preview`} width={72} height={72} unoptimized style={{ objectFit: "contain" }} /></div>}
+    {logoMessage && <p className={styles.wide} role="status">{logoMessage}</p>}
     <label>Website<input name="website" type="url" defaultValue={agency.website || ""} maxLength={300} placeholder="https://example.com" /></label>
     <label>Registration / RERA number<input name="registration_number" defaultValue={agency.registration_number || ""} maxLength={100} /></label>
     <label className={styles.wide}>Office address<input name="address" value={address} maxLength={500} required onChange={event => { setAddress(event.target.value); setConfirmed(false); setResults([]); }} /></label>
@@ -76,6 +98,6 @@ export function AgencyProfileEditor({ agency, superAdmin = false }: { agency: Ag
     <label>Longitude<input name="lng" type="number" min="-180" max="180" step="any" value={lng} onChange={event=>{setLng(event.target.value);setConfirmed(false);}} /></label>
     {!confirmed && <div className={styles.wide}><p role="status">Confirm the office pin for this address before saving.</p><button type="button" className="btn workspace-secondary" disabled={!valid} onClick={()=>setConfirmed(true)}>Confirm this map pin</button></div>}
     <p className={styles.wide} role="status">{message || "The office address and pin are saved together. Property locations stay separate."}</p>
-    {confirmed ? <SubmitButton>Save agency & map</SubmitButton> : <button type="button" className="btn" disabled>Confirm location to save</button>}
+    {confirmed ? <SubmitButton disabled={uploadingLogo}>Save agency & map</SubmitButton> : <button type="button" className="btn" disabled>Confirm location to save</button>}
   </form>;
 }

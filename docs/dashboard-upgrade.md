@@ -14,6 +14,10 @@ scrolling through every management form.
   business profile. Existing permissions still control every server action.
 - **Agents:** agency listings and enquiries with their existing permissions;
   agency profile editing and staff creation remain restricted to administrators.
+- Platform admins control the default-off `home_loans` and `tools` agency flags.
+  The `tools` flag gates the service-provider directory in navigation, its route
+  and actions, and PostgreSQL RLS. Platform admins bypass feature checks. The
+  `home_loans` flag is stored for future implementation; no loan route exists yet.
 
 The overview shows next actions, listing availability and current counts.
 Agencies, properties and people support search. Agency details and account

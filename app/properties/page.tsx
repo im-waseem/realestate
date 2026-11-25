@@ -3,8 +3,30 @@ import { PlatformHeader } from "@/components/platform";
 import { PropertyCard } from "@/components/property-card";
 import { publicProperties } from "@/lib/public-properties";
 import styles from "@/components/property-market.module.css";
+import type { Metadata } from "next";
 
 export const dynamic = "force-dynamic";
+export async function generateMetadata({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }): Promise<Metadata> {
+  const query = await searchParams;
+  const pageValue = typeof query.page === "string" ? Number(query.page) : 1;
+  const page = Number.isFinite(pageValue) && pageValue > 1 ? Math.floor(pageValue) : 1;
+  const hasFilters = Object.entries(query).some(([key, value]) => key !== "page" && (Array.isArray(value) ? value.length > 0 : Boolean(value)));
+  const title = page > 1 ? `Properties for Sale, Rent and Lease - Page ${page}` : "Properties for Sale, Rent and Lease";
+  return {
+    title,
+    description: "Browse active homes and spaces from Waseem Realty agencies. Filter by location, property type, bedrooms, and price.",
+    alternates: { canonical: page > 1 ? `/properties?page=${page}` : "/properties" },
+    robots: hasFilters || page > 1 ? { index: false, follow: true } : { index: true, follow: true },
+    openGraph: {
+      title: `${title} | Waseem Realty`,
+      description: "Homes and spaces for sale, rent and lease.",
+      url: page > 1 ? `/properties?page=${page}` : "/properties",
+      type: "website",
+      images: [{ url: "/images/architecture.jpg", width: 1600, height: 1000, alt: "Waseem Realty properties" }],
+    },
+    twitter: { card: "summary_large_image", title: `${title} | Waseem Realty`, description: "Homes and spaces for sale, rent and lease.", images: ["/images/architecture.jpg"] },
+  };
+}
 export default async function Properties({ searchParams }: { searchParams: Promise<Record<string,string|undefined>> }) {
   const query = await searchParams;
   const num = (value: string | undefined, fallback: number) => value?.trim() && Number.isFinite(Number(value)) ? Math.max(0,Number(value)) : fallback;

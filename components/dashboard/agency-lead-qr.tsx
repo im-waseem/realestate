@@ -1,15 +1,11 @@
 "use client";
 
 import { QRCodeSVG } from "qrcode.react";
-import { useEffect, useState } from "react";
 
 export function AgencyLeadQr({ agencyId, agencyName }: { agencyId: string; agencyName: string }) {
-  const [url, setUrl] = useState("");
-  useEffect(() => {
-    const configuredOrigin = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/$/, "");
-    const siteOrigin = configuredOrigin || "https://realestatewaseem.vercel.app";
-    setUrl(`${siteOrigin}/agency/${encodeURIComponent(agencyId)}`);
-  }, [agencyId]);
+  const configuredOrigin = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/$/, "");
+  const siteOrigin = configuredOrigin || "https://realestatewaseem.vercel.app";
+  const url = `${siteOrigin}/agency/${encodeURIComponent(agencyId)}`;
 
   function downloadQr() {
     const svg = document.querySelector<SVGSVGElement>("#agency-lead-qr svg");

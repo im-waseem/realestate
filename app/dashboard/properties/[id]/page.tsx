@@ -1,199 +1,50 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { PhotoInput } from "@/components/photo-input";
-import { saveProperty } from "@/app/actions";
-import { PlatformHeader, Notice } from "@/components/platform";
+import { PropertyEditorForm } from "@/components/dashboard/property-editor-form";
+import { PlatformHeader } from "@/components/platform";
 import { requireUser } from "@/lib/auth";
 import type { Agency, Property } from "@/lib/db";
+import { hasAgencyFeature } from "@/lib/features";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { supabaseData } from "@/lib/supabase/results";
+import type { Metadata } from "next";
 
-const propertyTypes = [
-  "Apartment",
-  "Villa",
-  "Independent house",
-  "Builder floor",
-  "Penthouse",
-  "Studio",
-  "Plot",
-  "Farm house",
-  "Office",
-  "Shop",
-  "Showroom",
-  "Warehouse",
-];
+export const metadata: Metadata = { title: "Edit property", robots: { index: false, follow: false } };
 
-const furnishingOptions = [
-  ["unfurnished", "Unfurnished"],
-  ["semi_furnished", "Semi-furnished"],
-  ["furnished", "Furnished"],
-  ["not_applicable", "Not applicable"],
-];
-
-export default async function Editor({
-  params,
-  searchParams,
-}: {
+export default async function Editor({ params, searchParams }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ message?: string; agency_id?: string }>;
+  searchParams: Promise<{ agency_id?: string }>;
 }) {
   const user = await requireUser();
   const { id } = await params;
   const query = await searchParams;
-  const isSuperAdmin = user.role === "super_admin";
+  const isAdmin = user.role === "super_admin";
   const supabase = await createSupabaseServerClient();
   let property: Property | undefined;
   if (id !== "new") {
     const result = await supabase.from("properties").select("*").eq("id", id).maybeSingle();
     property = supabaseData(result.data, result.error, "Unable to load property") ?? undefined;
   }
+  if (id !== "new" && (!property || (!isAdmin && property.agency_id !== user.agency_id))) notFound();
 
-  if (id !== "new" && (!property || (!isSuperAdmin && property.agency_id !== user.agency_id))) {
-    notFound();
-  }
   let agencies: Pick<Agency, "id" | "name" | "status">[] = [];
-  if (isSuperAdmin) {
+  if (isAdmin) {
     const result = await supabase.from("agencies").select("id,name,status").order("name");
     agencies = supabaseData(result.data, result.error, "Unable to load agencies");
   }
-  const selectedAgencyId = property?.agency_id || (isSuperAdmin ? query.agency_id : user.agency_id) || "";
+  const agencyId = property?.agency_id || (isAdmin ? query.agency_id : user.agency_id) || "";
 
-  const textField = (key: keyof Property, label: string, maxLength: number, required = true) => (
-    <label>
-      {label}
-      <input
-        name={key}
-        defaultValue={String(property?.[key] ?? "")}
-        required={required}
-        maxLength={maxLength}
-      />
-    </label>
-  );
-
-  const numberField = (
-    key: keyof Property,
-    label: string,
-    min: number,
-    max: number,
-    required = true,
-    step = "1",
-  ) => (
-    <label>
-      {label}
-      <input
-        name={key}
-        type="number"
-        step={step}
-        min={min}
-        max={max}
-        defaultValue={property?.[key] == null ? "" : Number(property[key])}
-        required={required}
-      />
-    </label>
-  );
-
-  return (
-    <>
-      <PlatformHeader />
-      <main className={`workspace editor ${isSuperAdmin ? "platform-workspace" : "agency-workspace"}`}>
-        <p className="kicker">PROPERTY MANAGEMENT</p>
-        <h1>{property ? "Edit" : "Add a"} <em>property.</em></h1>
-        <p className="muted">{isSuperAdmin ? "Main admin access: manage listings for any agency." : "Sale, rent, and lease listings stay in your agency workspace."}</p>
-        <p className="property-import-prompt">Working from an existing spreadsheet? <Link href="/dashboard/import?kind=properties">Import property listings from Excel</Link>.</p>
-        <Notice message={query.message} />
-
-        <form action={saveProperty} className="panel stack">
-          <input type="hidden" name="id" value={property?.id || ""} />
-          {isSuperAdmin && property && <input type="hidden" name="agency_id" value={property.agency_id} />}
-          {isSuperAdmin && !property && (
-            <label>
-              Agency
-              <select name="agency_id" defaultValue={selectedAgencyId} required>
-                <option value="" disabled>Select agency</option>
-                {agencies.map((agency) => <option key={agency.id} value={agency.id}>{agency.name} · {agency.status}</option>)}
-              </select>
-            </label>
-          )}
-
-          {textField("title", "Listing title", 150)}
-
-          <fieldset className="property-form-group">
-            <legend>Listing and property type</legend>
-            <div className="form-grid">
-              <label>
-                Listing purpose
-                <select name="intent" defaultValue={property?.intent || "sale"} required>
-                  <option value="sale">Buy / sell</option>
-                  <option value="rent">Rent</option>
-                  <option value="lease">Lease</option>
-                </select>
-              </label>
-              <label>
-                Property type
-                <select name="type" defaultValue={property?.type || "Apartment"} required>
-                  {propertyTypes.map((type) => <option key={type}>{type}</option>)}
-                </select>
-              </label>
-              {numberField("price", "Price in ₹ (monthly for rent)", 1, 1e12, true, "any")}
-              {numberField("area", "Built-up / plot area (sq ft)", 1, 1e8, true, "any")}
-            </div>
-          </fieldset>
-
-          <fieldset className="property-form-group">
-            <legend>Rooms and floor</legend>
-            <div className="form-grid">
-              {numberField("beds", "Bedrooms", 0, 50)}
-              {numberField("baths", "Bathrooms", 0, 50)}
-              {numberField("floor_number", "Floor number (ground floor = 0)", 0, 200)}
-              {numberField("total_floors", "Total floors in building", 1, 200, false)}
-              <label>
-                Furnishing
-                <select name="furnishing" defaultValue={property?.furnishing || "unfurnished"} required>
-                  {furnishingOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                </select>
-              </label>
-              {numberField("age_years", "Property age (years)", 0, 200, false)}
-            </div>
-            <small>For a ground-floor home enter floor 0. Leave total floors blank if this does not apply.</small>
-          </fieldset>
-
-          <fieldset className="property-form-group">
-            <legend>Parking and location</legend>
-            <div className="form-grid">
-              {numberField("car_parking", "Car parking spaces", 0, 100)}
-              {numberField("two_wheeler_parking", "Two-wheeler parking spaces", 0, 100)}
-              {textField("city", "City", 100)}
-              {textField("locality", "Locality", 150)}
-            </div>
-          </fieldset>
-
-          {textField("address", "Exact property address (private)", 500)}
-          <div className="form-grid">
-            {numberField("lat", "Latitude", -90, 90, true, "any")}
-            {numberField("lng", "Longitude", -180, 180, true, "any")}
-          </div>
-          <small>Exact address and coordinates are available only to authorized workspace users.</small>
-
-        <fieldset className="property-form-group owner-contact-group">
-          <legend>Property owner contact — private</legend>
-          <p className="muted">These details identify the owner or landlord for this listing. They are kept out of the public listing and separate from buyer or renter enquiries.</p>
-          <div className="form-grid">
-            <label>Owner name<input name="owner_name" defaultValue={property?.owner_name || ""} maxLength={100} /></label>
-            <label>Owner mobile<input name="owner_phone" type="tel" defaultValue={property?.owner_phone || ""} maxLength={25} /></label>
-            <label>Owner email (optional)<input name="owner_email" type="email" defaultValue={property?.owner_email || ""} maxLength={254} /></label>
-          </div>
-        </fieldset>
-
-          <label>
-            Property description
-            <textarea name="description" required maxLength={5000} defaultValue={property?.description} />
-          </label>
-          {textField("amenities", "Amenities (comma separated)", 1000)}
-
-          <PhotoInput initial={property ? (JSON.parse(property.images) as string[]).join("\n") : ""} agencyId={isSuperAdmin ? selectedAgencyId : undefined} />
-          <button className="btn">Save property →</button>
-        </form>
-      </main>
-    </>
-  );
+  return <>
+    <PlatformHeader />
+    <main className={`workspace editor ${isAdmin ? "platform-workspace" : "agency-workspace"}`}>
+      <p className="kicker">PROPERTY MANAGEMENT</p>
+      <h1>{property ? "Edit" : "Add a"} <em>property.</em></h1>
+      <p className="muted">{isAdmin ? "Manage listings for any agency." : "Manage properties in your agency workspace."}</p>
+      <p className="property-import-prompt">Working from a spreadsheet? <Link href="/dashboard/import?kind=properties">Import listings from Excel</Link>.</p>
+      {property && hasAgencyFeature(user, "home_loans") && (
+        <p><Link className="btn small workspace-secondary" href={`/dashboard/home-loans/new?property_id=${encodeURIComponent(property.id)}`}>Request home loan for a customer</Link></p>
+      )}
+      <PropertyEditorForm property={property} agencies={agencies} isAdmin={isAdmin} agencyId={agencyId} returnPath={isAdmin ? "/dashboard#inventory" : "/dashboard/properties"} />
+    </main>
+  </>;
 }

@@ -710,3 +710,32 @@ button, summary, select { cursor: pointer; }
 .agency-workspace .workbook-template-note { border-color:#d9e8df; background:#f5faf7; }
 .agency-workspace .workbook-template-link { color:#176b52; }
 @media(max-width:760px) { .workbook-import-layout { grid-template-columns:1fr; } .property-page-actions { justify-content:flex-start; } }
+.property-table-controls { display: grid; grid-template-columns: minmax(220px, 2fr) repeat(3, minmax(140px, 1fr)); gap: 12px; padding: 16px; border-bottom: 1px solid #e5e9e6; }
+.property-table-controls label { display: grid; gap: 6px; font-size: .78rem; color: #66736e; }
+.property-table-controls input, .property-table-controls select { width: 100%; min-height: 42px; border: 1px solid #d9e1dd; border-radius: 8px; padding: 8px 10px; color: #183a35; background: white; }
+.property-table-pagination { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 16px; color: #66736e; font-size: .85rem; }
+.property-table-pagination > div { display: flex; gap: 8px; }
+.property-table-panel { overflow: hidden; border: 1px solid #e5e9e6; border-radius: 14px; background: white; }
+.property-table-panel .table-wrap { border: 0; border-radius: 0; }
+.property-table-panel td small { display: block; margin-top: 4px; }
+.property-table-panel .row-actions { align-items: center; }
+.text-button { border: 0; background: none; color: #9e3f36; cursor: pointer; font: inherit; padding: 4px; }
+.text-button:disabled { opacity: .5; cursor: not-allowed; }
+.property-featured-control { display: flex; gap: 8px; align-items: center; min-height: 40px; }
+.property-featured-control input { width: 18px; height: 18px; accent-color: #103b36; }
+.field-error { color: #a33c35; }
+@media (max-width: 760px) { .property-table-controls { grid-template-columns: 1fr 1fr; } .property-table-controls label:first-child { grid-column: 1 / -1; } .property-table-pagination { align-items: flex-start; flex-direction: column; } }
+.enquiry-filters { display: grid; grid-template-columns: minmax(180px, 1.5fr) repeat(3, minmax(150px, 1fr)) auto; align-items: end; gap: 10px; margin: 14px 0; padding: 14px; border: 1px solid #e5e9e6; border-radius: 12px; background: #fff; }
+.enquiry-filters label { display: grid; gap: 5px; color: #66736e; font-size: .78rem; }
+.enquiry-filters input, .enquiry-filters select { width: 100%; min-height: 40px; border: 1px solid #d9e1dd; border-radius: 8px; padding: 8px 10px; background: white; color: #183a35; }
+.agency-qr-honeypot { position: absolute !important; left: -10000px !important; width: 1px !important; height: 1px !important; overflow: hidden !important; }
+.agency-public-logo, .agency-logo-preview { display: block; width: 72px; height: 72px; object-fit: contain; }
+.agency-public-logo { width: 96px; height: 96px; margin: 0 0 16px; }
+.agency-approval-queue { display: grid; gap: 12px; margin-bottom: 18px; padding: 18px; }
+.agency-approval-queue h3 { margin: 0; }
+.agency-approval-queue p { margin: 4px 0 0; }
+.agency-approval-item { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding-top: 12px; border-top: 1px solid #e5e9e6; }
+.agency-approval-item small { display: block; margin-top: 4px; color: #66736e; }
+.agency-approval-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.agency-details-copy .agency-logo-preview { margin-bottom: 12px; }
+@media (max-width: 900px) { .enquiry-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

@@ -32,13 +32,16 @@
     "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
-    ".next/types/**/*.ts",
+          "types/**/*.d.ts",
+".next/types/**/*.ts",
     ".next/dev/types/**/*.ts",
     "**/*.mts",
     ".next-smoke/types/**/*.ts",
     ".next-smoke/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "tests"
   ]
 }
+

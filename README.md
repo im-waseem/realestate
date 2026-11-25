@@ -1,4 +1,4 @@
-# Waseem Realty
+  # Waseem Realty
 
 A real estate marketplace with public property discovery and separate platform
 admin, agency admin and agent workspaces. Use Node.js **22.13 or later**.
@@ -33,6 +33,9 @@ map configuration, upgrade instructions and validation limitations.
   and team. Pending or suspended agencies cannot access the workspace.
 - **Agent:** manage their agency's properties and enquiries with existing role
   permissions; cannot edit the agency business profile or create staff accounts.
+- Platform admins configure agencies' default-off `home_loans` and `tools`
+  feature flags. `tools` gates the service-provider directory; platform admins
+  always retain access. Home-loan screens are not implemented yet.
 
 Public listing projection excludes property street addresses, exact coordinates,
 agency office contact details, account data and customer records. Workspaces
@@ -59,6 +62,8 @@ removed from the dashboard UI.
   rate-limited public enquiry capture.
 - `sql/migrations/20261108_service_provider_crud_access.sql`: agency-scoped
   provider create, read, update, and delete access.
+- `sql/migrations/20261125_agency_feature_flags.sql`: default-off agency feature
+  flags and service-provider access control.
 - `sql/modules/`: separate feature SQL files for review; use the combined
   migration to install atomically.
 - `sql/provision-super-admin.postgres.sql`: edit the example email and run for
@@ -82,6 +87,7 @@ and set their own password. Keep demo data in a development project.
 
 ```sh
 npm run lint
+npm run test
 npm run test:sql
 npm run build
 npm run test:smoke

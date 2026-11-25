@@ -1,25 +1,32 @@
 import Link from "next/link";
+import Image from "next/image";
 import { AgencyProfileEditor } from "@/components/dashboard/agency-profile-editor";
 import { SubmitButton } from "@/components/dashboard/submit-button";
 import { SearchableCollection } from "@/components/dashboard/searchable-collection";
+import { PropertyTable } from "@/components/dashboard/property-table";
 import { WorkspaceShell, WorkspaceSection, WorkspaceNavLink } from "@/components/dashboard/workspace-shell";
 import { redirect } from "next/navigation";
+import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { requireUser } from "@/lib/auth";
 import type { Lead, Property, ServiceProvider, User } from "@/lib/db";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { supabaseData } from "@/lib/supabase/results";
-import { addStaff, deleteAgency, deleteProperty, deleteServiceProvider, deleteStaff, logout, propertyStatus, saveServiceProvider, setAgencyStatus, updateStaff } from "@/app/actions";
-import { Money, Notice } from "@/components/platform";
+import { sevenDaysAgoIso } from "@/lib/dates";
+import { addStaff, deleteAgency, deleteServiceProvider, logout, saveServiceProvider, setAgencyStatus, setStaffActive, updateAgencyFeature, updateStaff } from "@/app/actions";
+import { Notice } from "@/components/platform";
 import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
 import { EnquiriesTable } from "@/components/dashboard/enquiries-table";
 import { AgencyLeadQr } from "@/components/dashboard/agency-lead-qr";
 import enquiryStyles from "@/components/dashboard/enquiry-item.module.css";
+import { hasAgencyFeature, type AgencyFeature } from "@/lib/features";
 
 type Agency = {
   id: string;
   name: string;
   status: string;
+  features: { home_loans: boolean; tools: boolean };
+  logo_url: string;
   contact_name: string;
   contact_email: string;
   phone: string;
@@ -44,9 +51,10 @@ type Agency = {
   activity_count: number;
 };
 type DashboardProperty = Property & { agency_name?: string };
-type DashboardLead = Lead & { agency_name?: string };
+type DashboardLead = Lead & { agency_name?: string; property_title?: string; assignee_name?: string };
 type DashboardServiceProvider = ServiceProvider & { agency_name?: string };
 const ENQUIRIES_PER_PAGE = 10;
+export const metadata: Metadata = { title: "Overview" };
 const SERVICE_CATEGORIES = [
   "Plumber", "Electrician", "Painter", "Carpenter", "Mason / bricklayer", "Builder / construction contractor",
   "Civil engineer", "Structural engineer", "Architect", "Interior designer", "3D / space designer",
@@ -98,10 +106,26 @@ function ServiceProviderForm({
   );
 }
 
-function Metric({ label, value, detail }: { label: string; value: number; detail: string }) {
+function AgencyFeatureControl({ agency, feature, label }: { agency: Agency; feature: AgencyFeature; label: string }) {
+  const enabled = agency.features[feature];
+  return (
+    <form action={updateAgencyFeature} className="agency-feature-control">
+      <input type="hidden" name="agency_id" value={agency.id} />
+      <input type="hidden" name="feature" value={feature} />
+      <input type="hidden" name="enabled" value={enabled ? "false" : "true"} />
+      <span>{label}</span>
+      <span className={`badge ${enabled ? "active" : "suspended"}`}>{enabled ? "Enabled" : "Disabled"}</span>
+      <SubmitButton className="btn small workspace-secondary">{enabled ? "Disable" : "Enable"}</SubmitButton>
+    </form>
+  );
+}
+
+function Metric({ label, value, detail }: { label: string; value: number | string; detail: string }) {
+  const normalizedLabel = label.toLowerCase();
+  const icon = normalizedLabel.includes("enquir") ? "leads" : normalizedLabel.includes("team") ? "team" : normalizedLabel.includes("agenc") ? "agencies" : "properties";
   return (
     <article className="panel dashboard-metric">
-      <p className="dashboard-metric-label"><span className="metric-icon"><SidebarIcon name={label.includes("agenc") || label === "Agencies" ? "agencies" : label.includes("enquiries") ? "leads" : label.includes("Team") ? "team" : "properties"} /></span>{label}</p>
+      <p className="dashboard-metric-label"><span className="metric-icon"><SidebarIcon name={icon} /></span>{label}</p>
       <strong className="dashboard-metric-value">{value}</strong>
       <p className="dashboard-metric-detail">{detail}</p>
     </article>
@@ -127,6 +151,7 @@ function AgencyDetails({
   return (
     <div className="agency-details-card">
       <div className="agency-details-copy">
+        {agency.logo_url && <Image className="agency-logo-preview" src={agency.logo_url} alt={`${agency.name} logo`} width={72} height={72} unoptimized />}
         <h3>{agency.name}</h3>
         {primaryContact && <p><strong>Agency login</strong><span>{primaryContact.name} · {primaryContact.email}</span></p>}
         {agency.contact_name && <p><strong>Primary contact</strong><span>{agency.contact_name}</span></p>}
@@ -180,8 +205,11 @@ function SidebarIcon({ name }: { name: string }) {
     agencies: <><path d="M3 21h18" /><path d="M5 21V7l7-4 7 4v14" /><path d="M9 21v-5h6v5M9 9h.01M15 9h.01" /></>,
     properties: <><path d="m3 10 9-7 9 7" /><path d="M5 9v12h14V9M9 21v-7h6v7" /></>,
     leads: <><path d="M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="10" cy="7" r="4" /><path d="M20 8v6m3-3h-6" /></>,
+    loans: <><path d="M3 10h18" /><path d="M5 10v10h14V10M4 20h16" /><path d="M7 6h10M9 3h6" /><path d="M9 14h6" /></>,
+    tools: <><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 7h8M8 11h2m4 0h2M8 15h2m4 0h2" /><path d="M10 19v-2h4v2" /></>,
     team: <><path d="M16 21v-2a4 4 0 0 0-3-3.87" /><path d="M8 21v-2a4 4 0 0 1 4-4h1" /><circle cx="9" cy="7" r="4" /><path d="M18 8a4 4 0 0 1 0 8" /></>,
     services: <><path d="m14.7 6.3 3 3" /><path d="M4 20 14.7 9.3" /><path d="M12.2 5.8a5 5 0 0 0 6 6L21 14.6 17.6 18l-2.8-2.8a5 5 0 0 0-6-6L6 6.4l3.4-3.4z" /></>,
+    settings: <><circle cx="12" cy="12" r="3" /><path d="m19.4 15 .1.1 1.4 1.1-1.4 2.4-1.7-.7a8 8 0 0 1-1.7 1l-.3 1.8h-2.8l-.3-1.8a8 8 0 0 1-1.7-1l-1.7.7-1.4-2.4 1.4-1.1a7 7 0 0 1 0-2l-1.4-1.1 1.4-2.4 1.7.7a8 8 0 0 1 1.7-1l.3-1.8h2.8l.3 1.8a8 8 0 0 1 1.7 1l1.7-.7 1.4 2.4-1.4 1.1a7 7 0 0 1-.1 1.9z" transform="translate(-1 -1)" /></>,
     logout: <><path d="M10 4H4v16h6M14 8l4 4-4 4M8 12h10" /></>,
     activity: <><path d="M3 12h4l3-8 4 16 3-8h4" /></>,
   };
@@ -193,38 +221,57 @@ function SidebarIcon({ name }: { name: string }) {
   );
 }
 
-export default async function Dashboard({ searchParams }: { searchParams: Promise<{ message?: string; leadsPage?: string }> }) {
+export default async function Dashboard({ searchParams }: { searchParams: Promise<{ message?: string; leadsPage?: string; enquiryStatus?: string; enquirySearch?: string; assignedTo?: string; propertyId?: string }> }) {
   const user = await requireUser();
   const query = await searchParams;
   const isSuperAdmin = user.role === "super_admin";
+  const toolsEnabled = hasAgencyFeature(user, "tools");
+  const homeLoansEnabled = hasAgencyFeature(user, "home_loans");
   const supabase = await createSupabaseServerClient();
   const parsedPage = Number(query.leadsPage);
   const requestedPage = Number.isSafeInteger(parsedPage) && parsedPage > 0 && parsedPage <= 1_000_000 ? parsedPage : 1;
-  const [propertyResult, leadResult, summaryResult, staffResult] = await Promise.all([
+  const enquiryStatuses = ["new", "contacted", "visit", "visit scheduled", "negotiating", "closed", "lost"];
+  const enquiryStatus = enquiryStatuses.includes(query.enquiryStatus || "") ? query.enquiryStatus! : "";
+  const enquirySearch = (query.enquirySearch || "").trim().slice(0, 100).replace(/[,%_*()]/g, " ").trim();
+  const assignedTo = /^[0-9a-f-]{36}$/i.test(query.assignedTo || "") ? query.assignedTo! : "";
+  const propertyId = /^[a-zA-Z0-9-]{1,100}$/.test(query.propertyId || "") ? query.propertyId! : "";
+  const sevenDaysAgo = sevenDaysAgoIso();
+  const [propertyResult, leadResult, allLeadCountResult, summaryResult, staffResult, recentEnquiryResult] = await Promise.all([
     supabase.from("properties").select("*").order("created_at", { ascending: false }),
-    supabase.from("leads")
+    (() => {
+      let leadsQuery = supabase.from("leads")
       .select("*", { count: "exact" })
       .order("created_at", { ascending: false })
-      .order("id", { ascending: false })
-      .range((requestedPage - 1) * ENQUIRIES_PER_PAGE, requestedPage * ENQUIRIES_PER_PAGE - 1),
+      .order("id", { ascending: false });
+      if (enquiryStatus) leadsQuery = leadsQuery.eq("status", enquiryStatus);
+      if (enquirySearch) leadsQuery = leadsQuery.ilike("name", `%${enquirySearch}%`);
+      if (assignedTo) leadsQuery = leadsQuery.eq("assigned_to", assignedTo);
+      if (propertyId) leadsQuery = leadsQuery.eq("property_id", propertyId);
+      return leadsQuery.range((requestedPage - 1) * ENQUIRIES_PER_PAGE, requestedPage * ENQUIRIES_PER_PAGE - 1);
+    })(),
+    supabase.from("leads").select("id", { count: "exact", head: true }),
     supabase.rpc("realty_dashboard_summary", {}),
-    supabase.from("profiles").select("id,name,email,role,agency_id").neq("role", "super_admin").order("name"),
+    supabase.from("profiles").select("id,name,email,role,agency_id,is_active").neq("role", "super_admin").order("name"),
+    supabase.from("leads").select("id", { count: "exact", head: true }).gte("created_at", sevenDaysAgo),
   ]);
-  const serviceProviderResult = isSuperAdmin
-    ? null
-    : await supabase.from("service_providers").select("*").order("category").order("name");
+  const serviceProviderResult = toolsEnabled
+    ? await supabase.from("service_providers").select("*").order("category").order("name")
+    : null;
   const rawProperties = supabaseData(propertyResult.data, propertyResult.error, "Unable to load properties");
   const rawLeads = supabaseData(leadResult.data, leadResult.error, "Unable to load enquiries");
   const rawServiceProviders: ServiceProvider[] = serviceProviderResult
     ? supabaseData(serviceProviderResult.data, serviceProviderResult.error, "Unable to load service providers. Apply sql/migrations/20261103_service_provider_directory.sql.")
     : [];
   const summary = supabaseData(summaryResult.data, summaryResult.error, "Unable to load dashboard summary. Apply sql/migrations/20261101_dashboard_summary.sql")?.[0];
-  if (!summary || leadResult.count === null) throw new Error("Unable to load dashboard counts.");
-  const totalLeadCount = leadResult.count;
+  if (!summary || leadResult.count === null || allLeadCountResult.count === null) throw new Error("Unable to load dashboard counts.");
+  if (recentEnquiryResult.error) throw new Error("Unable to load recent enquiry counts.");
+  const recentEnquiryCount = recentEnquiryResult.count ?? 0;
+  const filteredLeadCount = leadResult.count;
+  const totalLeadCount = allLeadCountResult.count;
   const activeLeads = summary.open_leads;
-  const totalLeadPages = Math.max(1, Math.ceil(totalLeadCount / ENQUIRIES_PER_PAGE));
+  const totalLeadPages = Math.max(1, Math.ceil(filteredLeadCount / ENQUIRIES_PER_PAGE));
   if (requestedPage > totalLeadPages) {
-    redirect(`/dashboard?leadsPage=${totalLeadPages}#leads`);
+    redirect(`/dashboard?leadsPage=${totalLeadPages}&enquiryStatus=${encodeURIComponent(enquiryStatus)}&enquirySearch=${encodeURIComponent(enquirySearch)}&assignedTo=${encodeURIComponent(assignedTo)}&propertyId=${encodeURIComponent(propertyId)}#leads`);
   }
   const staff: User[] = supabaseData(staffResult.data, staffResult.error, "Unable to load agency users");
   const agencyAdminsById = new Map<string, User>();
@@ -280,7 +327,14 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
     ...property,
     agency_name: agenciesById.get(property.agency_id) || agencyDetails?.name,
   }));
-  const leads: DashboardLead[] = rawLeads.map((lead) => ({ ...lead, agency_name: agenciesById.get(lead.agency_id) || agencyDetails?.name }));
+  const staffById = new Map(staff.map((member) => [member.id, member.name]));
+  const propertyTitleById = new Map(rawProperties.map((property) => [property.id, property.title]));
+  const leads: DashboardLead[] = rawLeads.map((lead) => ({
+    ...lead,
+    agency_name: agenciesById.get(lead.agency_id) || agencyDetails?.name,
+    property_title: lead.property_id ? propertyTitleById.get(lead.property_id) : undefined,
+    assignee_name: lead.assigned_to ? staffById.get(lead.assigned_to) : undefined,
+  }));
   const serviceProviders: DashboardServiceProvider[] = rawServiceProviders.map((provider) => ({
     ...provider,
     agency_name: agenciesById.get(provider.agency_id) || agencyDetails?.name,
@@ -288,20 +342,22 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
   const agencyName = agencyDetails?.name;
   const pendingProperties = summary.pending;
   const pendingAgencies = summary.pending_agencies;
-  const platformClosedLeadCount = agencies.reduce((count, agency) => count + agency.closed_lead_count, 0);
-  const platformLostLeadCount = agencies.reduce((count, agency) => count + agency.lost_lead_count, 0);
+  const newEnquiriesDetail = recentEnquiryCount === 0 ? "No new enquiries in the last seven days" : "Submitted in the last seven days";
   const navigation = [
     { label: "Overview", href: "#overview", icon: "overview" },
-    ...(isSuperAdmin ? [{ label: "Agencies", href: "#agencies", icon: "agencies", count: pendingAgencies }] : []),
-    ...(!isSuperAdmin ? [{ label: "Agency details", href: "#agency-details", icon: "agencies" }] : []),
-    { label: isSuperAdmin ? "All properties" : "My properties", href: "#inventory", icon: "properties", count: isSuperAdmin ? pendingProperties : undefined },
+    { label: "Properties", href: "#inventory", icon: "properties", count: isSuperAdmin ? pendingProperties : undefined },
     { label: "Enquiries", href: "#leads", icon: "leads", count: activeLeads },
-    ...(!isSuperAdmin ? [{ label: "Service providers", href: "#services", icon: "services" }] : []),
-    { label: isSuperAdmin ? "Agency users" : "Team", href: "#team", icon: "team" },
+    ...(homeLoansEnabled ? [{ label: "Home loans", href: "/dashboard/home-loans", icon: "loans" }] : []),
+    { label: "Team", href: "#team", icon: "team" },
+    ...(toolsEnabled ? [
+      { label: "Tools", href: "/dashboard/tools", icon: "tools" },
+      { label: "Service providers", href: "#services", icon: "services" },
+    ] : []),
+    { label: "Settings", href: isSuperAdmin ? "#agencies" : "#agency-details", icon: "settings" },
   ];
 
   return (
-    <WorkspaceShell theme={isSuperAdmin ? "platform" : "agency"} allowedViews={isSuperAdmin ? ["overview", "agencies", "inventory", "leads", "team"] : ["overview", "agency-details", "inventory", "leads", "services", "team"]}>
+    <WorkspaceShell theme={isSuperAdmin ? "platform" : "agency"} allowedViews={isSuperAdmin ? ["overview", "agencies", "inventory", "leads", "team", "services"] : ["overview", "agency-details", "inventory", "leads", ...(toolsEnabled ? ["services"] : []), "team"]}>
       <aside className="dashboard-sidebar">
         <Link className="dashboard-sidebar-brand" href="/">
           <span className="dashboard-sidebar-brandmark">{isSuperAdmin ? "W" : agencyName?.trim().slice(0, 1).toUpperCase() || "W"}</span>
@@ -347,7 +403,20 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
       </aside>
       <div className="dashboard-main">
         <main className={`workspace dashboard ${isSuperAdmin ? "platform-dashboard-page" : "agency-dashboard-page"}`}>
-        <header className="workspace-topbar"><div><span className="workspace-status-dot" /> {isSuperAdmin ? "Platform control center" : "Agency workspace"}</div><div className="workspace-topbar-account">{user.role.replaceAll("_", " ")} <strong>{user.name}</strong><form action={logout}><button className="dashboard-topbar-signout" type="submit">Sign out</button></form></div></header>
+        <header className="workspace-topbar">
+          <div><span className="workspace-status-dot" /> {isSuperAdmin ? "Platform control center" : "Agency workspace"}</div>
+          <details className="dashboard-user-menu">
+            <summary aria-label={`Account menu for ${user.name}`}>
+              <span className="dashboard-user-avatar">{user.name.trim().slice(0, 1).toUpperCase()}</span>
+              <span className="dashboard-user-copy"><strong>{user.name}</strong><small>{isSuperAdmin ? "Administrator" : agencyName || "Agency workspace"}</small></span>
+              <span className="dashboard-user-chevron" aria-hidden="true">⌄</span>
+            </summary>
+            <div className="dashboard-user-menu-panel">
+              <strong>{user.name}</strong><small>{user.email}</small>
+              <form action={logout}><button className="dashboard-topbar-signout" type="submit">Sign out</button></form>
+            </div>
+          </details>
+        </header>
         <Notice message={query.message} />
         <WorkspaceSection id="overview">
         <section className={`dashboard-hero ${isSuperAdmin ? "dashboard-hero-admin" : "dashboard-hero-agency"}`}>
@@ -368,33 +437,10 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
 
 
         <section aria-label="Dashboard summary" className="dashboard-metrics">
-          {isSuperAdmin ? (
-            <>
-              <Metric label="Agencies" value={summary.agency_total} detail="All registered agencies" />
-              <Metric
-                label="Pending agencies"
-                value={summary.pending_agencies}
-                detail="Current agency status"
-              />
-              <Metric label="Pending listings" value={pendingProperties} detail="Current listing status" />
-              <Metric
-                label="Published listings"
-                value={summary.published}
-                detail="Visible in the public catalogue"
-              />
-              <Metric label="Total enquiries" value={totalLeadCount} detail="Across all agencies" />
-              <Metric label="Open enquiries" value={activeLeads} detail="Need follow-up across the platform" />
-              <Metric label="Closed enquiries" value={platformClosedLeadCount} detail="Marked as closed by agencies" />
-              <Metric label="Lost enquiries" value={platformLostLeadCount} detail="Marked as lost by agencies" />
-            </>
-          ) : (
-            <>
-              <Metric label="Property listings" value={summary.property_total} detail="Across your agency" />
-              <Metric label="Published listings" value={summary.published} detail="Visible in the public catalogue" />
-              <Metric label="Open enquiries" value={activeLeads} detail="Needs a follow-up" />
-              <Metric label="Team members" value={summary.team_count} detail="People in your workspace" />
-            </>
-          )}
+          <Metric label="Listings" value={summary.property_total} detail={summary.property_total ? `${summary.published} published · ${pendingProperties} pending` : "Add your first listing to get started"} />
+          <Metric label="Active / sold" value={`${summary.published} / ${summary.sold}`} detail="Published listings and completed sales" />
+          <Metric label="New enquiries (7d)" value={recentEnquiryCount} detail={newEnquiriesDetail} />
+          <Metric label="Team" value={summary.team_count} detail={summary.team_count ? "People in your workspace" : "Invite your first teammate"} />
         </section>
 
         <div className="workspace-overview-grid">
@@ -425,7 +471,10 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
                 <p className="kicker">YOUR BUSINESS PROFILE</p>
                 <h2>Agency details</h2>
               </div>
-              <span className={`badge ${agencyDetails.status}`}>{agencyDetails.status}</span>
+              <div className="property-page-actions">
+                <a className="btn small workspace-secondary" href="#services">Service providers</a>
+                <span className={`badge ${agencyDetails.status}`}>{agencyDetails.status}</span>
+              </div>
             </div>
             <AgencyDetails agency={agencyDetails} editable={user.role === "agency_admin"} primaryContact={agencyAdminsById.get(agencyDetails.id)} />
           </WorkspaceSection>
@@ -440,11 +489,23 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
               </div>
               <p className="muted">Edit profiles, control access, and manage each agency workspace and its data.</p>
             </div>
+            {agencies.some((agency) => agency.status === "pending") && <section className="panel agency-approval-queue" aria-label="Pending agency approvals">
+              <div><p className="kicker">REVIEW REQUIRED</p><h3>Agency approval queue</h3><p className="muted">New registrations stay locked until approved.</p></div>
+              {agencies.filter((agency) => agency.status === "pending").map((agency) => <div className="agency-approval-item" key={agency.id}>
+                <span><strong>{agency.name}</strong><small>{agency.contact_email || agency.phone || "Contact details not provided"}</small></span>
+                <div className="agency-approval-actions"><form action={setAgencyStatus}><input type="hidden" name="agency_id" value={agency.id} /><input type="hidden" name="status" value="active" /><SubmitButton className="btn small">Approve</SubmitButton></form><form action={setAgencyStatus}><input type="hidden" name="agency_id" value={agency.id} /><input type="hidden" name="status" value="suspended" /><SubmitButton className="btn small workspace-secondary">Decline</SubmitButton></form></div>
+              </div>)}
+            </section>}
             <div className="panel dashboard-list">
               <SearchableCollection label="Find an agency" items={agencies.map((agency) => ({ id: agency.id, search: `${agency.name} ${agency.phone} ${agency.status}`, content: (
                 <details className="agency-row workspace-agency" key={agency.id}><summary><span className="workspace-agency-avatar">{agency.name.slice(0, 1).toUpperCase()}</span><span><strong>{agency.name}</strong><small>{agency.user_count} people · {agency.property_count} properties · {agency.lead_count} leads ({agency.open_lead_count} open, {agency.closed_lead_count} closed, {agency.lost_lead_count} lost)</small></span><span className={`badge ${agency.status}`}>{agency.status}</span><span className="workspace-expand">Manage ↗</span></summary>
                   <div className="dashboard-agency-detail">
                     <AgencyDetails agency={agency} editable superAdmin primaryContact={agencyAdminsById.get(agency.id)} />
+                      <section className="panel agency-feature-controls" aria-label={`${agency.name} feature access`}>
+                        <h3>Feature access</h3>
+                        <AgencyFeatureControl agency={agency} feature="home_loans" label="Home loans" />
+                        <AgencyFeatureControl agency={agency} feature="tools" label="Tools (service providers)" />
+                      </section>
                     <section className="panel dashboard-agency-properties" aria-label={`${agency.name} properties`}>
                       <div className="workspace-card-heading"><div><p className="kicker">AGENCY INVENTORY</p><h3>{agency.name} properties</h3></div></div>
                       {rawProperties.filter((property) => property.agency_id === agency.id).length > 0 ? (
@@ -495,53 +556,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
                 : <Link className="btn small" href="/dashboard/properties">Open my property workspace →</Link>}
             </div>
           </div>
-          <div className="panel workspace-property-list">
-            <SearchableCollection label="Find a property" placeholder="Search title, city, agency or status…" tableHeader={
-                <tr>
-                  <th>Property</th>
-                  {isSuperAdmin && <th>Agency</th>}
-                  <th>Price</th>
-                  <th>Status</th>
-                  <th>Manage</th>
-                </tr>
-              } items={properties.map((property) => ({ id: property.id, search: `${property.title} ${property.city} ${property.locality} ${property.agency_name || ""} ${property.status} ${property.intent}`, content: (
-                  <tr key={property.id}>
-                    <td>
-                      <strong>{property.title}</strong>
-                      <small>{property.locality}, {property.city} · {property.intent}</small>
-                    </td>
-                    {isSuperAdmin && <td>{property.agency_name}</td>}
-                    <td><Money value={property.price} /></td>
-                    <td><span className={`badge ${property.status}`}>{property.status}</span></td>
-                    <td>
-                      {(
-                        <div className="row-actions">
-                          <Link href={`/dashboard/properties/${property.id}`}>Edit</Link>
-                          <form action={deleteProperty}>
-                            <input type="hidden" name="id" value={property.id} />
-                            <ConfirmDeleteButton
-                              title={isSuperAdmin
-                                ? "Permanently delete this property"
-                                : "Deletion is blocked when customer enquiries are linked to this property."}
-                              confirmMessage={`Permanently delete "${property.title}"? This cannot be undone.`}
-                            >
-                              Delete property
-                            </ConfirmDeleteButton>
-                          </form>
-                          <form action={propertyStatus}>
-                            <input type="hidden" name="id" value={property.id} />
-                            <select name="status" aria-label={`Status for ${property.title}`} defaultValue="">
-                              <option value="" disabled>Change status</option>
-                              {["published", "sold", "rented", "withdrawn"].map((status) => <option key={status}>{status}</option>)}
-                            </select>
-                            <SubmitButton className="btn small">Save</SubmitButton>
-                          </form>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-            ) }))} />
-          </div>
+          <PropertyTable properties={properties} isAdmin={isSuperAdmin} />
         </WorkspaceSection>
 
         <WorkspaceSection id="leads" className="dashboard-section">
@@ -555,30 +570,43 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
               <Link className="btn small" href="/dashboard/leads/new">+ Add customer</Link>
             </div>
           </div>
+          <form className="enquiry-filters" method="get" action="/dashboard#leads">
+            <input type="hidden" name="leadsPage" value="1" />
+            <label>Search name<input name="enquirySearch" defaultValue={enquirySearch} maxLength={100} placeholder="Customer name" /></label>
+            <label>Status<select name="enquiryStatus" defaultValue={enquiryStatus}><option value="">All statuses</option>{enquiryStatuses.map((status) => <option key={status} value={status}>{status}</option>)}</select></label>
+            <label>Assignee<select name="assignedTo" defaultValue={assignedTo}><option value="">Anyone</option>{staff.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}</select></label>
+            <label>Property<select name="propertyId" defaultValue={propertyId}><option value="">All properties</option>{rawProperties.map((property) => <option key={property.id} value={property.id}>{property.title}</option>)}</select></label>
+            <button className="btn small">Apply filters</button>
+          </form>
           {leads.length > 0 ? (
-            <EnquiriesTable leads={leads} />
+            <EnquiriesTable leads={leads} assignees={staff.map((member) => ({ id: member.id, name: member.name, agency_id: member.agency_id }))} properties={rawProperties.map((property) => ({ id: property.id, title: property.title, agency_id: property.agency_id }))} homeLoansEnabled={homeLoansEnabled} />
           ) : (
-            <p className="empty panel">Customer enquiries will appear here.</p>
+            <div className="empty panel dashboard-empty-state">
+              <span className="metric-icon"><SidebarIcon name="leads" /></span>
+              <h3>{totalLeadCount ? "No enquiries match these filters" : "No enquiries yet"}</h3>
+              <p>{totalLeadCount ? "Try a different filter." : "New customer enquiries will appear here when someone contacts your workspace."}</p>
+              <Link className="btn workspace-secondary" href="/dashboard/leads/new">Add an enquiry</Link>
+            </div>
           )}
-          {totalLeadCount > 0 && (
+          {filteredLeadCount > 0 && (
             <nav className={enquiryStyles.enquiryPagination} aria-label="Customer enquiry pages">
               <span className={enquiryStyles.enquiryPaginationSummary}>
-                Showing {(requestedPage - 1) * ENQUIRIES_PER_PAGE + 1}–{Math.min(requestedPage * ENQUIRIES_PER_PAGE, totalLeadCount)} of {totalLeadCount}
+                Showing {(requestedPage - 1) * ENQUIRIES_PER_PAGE + 1}–{Math.min(requestedPage * ENQUIRIES_PER_PAGE, filteredLeadCount)} of {filteredLeadCount}
               </span>
               <div className={enquiryStyles.enquiryPaginationControls}>
                 {requestedPage > 1
-                  ? <Link href={`/dashboard?leadsPage=${requestedPage - 1}#leads`}>← Previous</Link>
+                  ? <Link href={`/dashboard?leadsPage=${requestedPage - 1}&enquiryStatus=${encodeURIComponent(enquiryStatus)}&enquirySearch=${encodeURIComponent(enquirySearch)}&assignedTo=${encodeURIComponent(assignedTo)}&propertyId=${encodeURIComponent(propertyId)}#leads`}>← Previous</Link>
                   : <span aria-disabled="true">Previous</span>}
                 <strong>{requestedPage} <span>/</span> {totalLeadPages}</strong>
                 {requestedPage < totalLeadPages
-                  ? <Link href={`/dashboard?leadsPage=${requestedPage + 1}#leads`}>Next →</Link>
+                  ? <Link href={`/dashboard?leadsPage=${requestedPage + 1}&enquiryStatus=${encodeURIComponent(enquiryStatus)}&enquirySearch=${encodeURIComponent(enquirySearch)}&assignedTo=${encodeURIComponent(assignedTo)}&propertyId=${encodeURIComponent(propertyId)}#leads`}>Next →</Link>
                   : <span aria-disabled="true">Next</span>}
               </div>
             </nav>
           )}
         </WorkspaceSection>
 
-        {!isSuperAdmin && <WorkspaceSection id="services" className="dashboard-section">
+        {toolsEnabled && <WorkspaceSection id="services" className="dashboard-section">
           <div className="dashboard-section-heading">
             <div>
               <p className="kicker">LOCAL SERVICE DIRECTORY</p>
@@ -645,6 +673,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
                   <div className="dashboard-row-end">
                     {isSuperAdmin && <small>{agencies.find((agency) => agency.id === member.agency_id)?.name}</small>}
                     <span className="badge">{member.role.replaceAll("_", " ")}</span>
+                    <span className={`badge ${member.is_active ? "active" : "suspended"}`}>{member.is_active ? "Active" : "Deactivated"}</span>
                     {(isSuperAdmin || (user.role === "agency_admin" && member.role === "agent")) && <details className="workspace-member-edit"><summary>Edit account</summary><form action={updateStaff} className="team-member-edit">
                       <input type="hidden" name="id" value={member.id} />
                       {isSuperAdmin && (
@@ -660,9 +689,9 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
                       {!isSuperAdmin && <input type="hidden" name="role" value="agent" />}
                       <SubmitButton className="btn small">Save team member</SubmitButton>
                     </form></details>}
-                    {(isSuperAdmin || (user.role === "agency_admin" && member.role === "agent")) && <form action={deleteStaff}>
-                      <input type="hidden" name="id" value={member.id} />
-                      <ConfirmDeleteButton confirmMessage={`Remove ${member.name} from this agency? Their active sessions will be revoked.`}>Remove user</ConfirmDeleteButton>
+                    {(isSuperAdmin || (user.role === "agency_admin" && member.role === "agent")) && member.id !== user.id && <form action={setStaffActive}>
+                      <input type="hidden" name="id" value={member.id} /><input type="hidden" name="is_active" value={member.is_active ? "false" : "true"} />
+                      <SubmitButton className="btn small workspace-secondary">{member.is_active ? "Deactivate" : "Reactivate"}</SubmitButton>
                     </form>}
                   </div>
                 </div>
@@ -672,13 +701,14 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
               <form action={addStaff} className="panel stack dashboard-add-staff">
                 <div>
                   <p className="kicker">{isSuperAdmin ? "WORKSPACE ACCESS" : "GROW YOUR TEAM"}</p>
-                  <h3>{isSuperAdmin ? "Add an agency user" : "Add an agent"}</h3>
+                  <h3>{isSuperAdmin ? "Invite an agency user" : "Invite an agent"}</h3>
                 </div>
                 {isSuperAdmin && <label>Agency<select name="agency_id" required defaultValue=""><option value="" disabled>Select agency</option>{agencies.map((agency) => <option key={agency.id} value={agency.id}>{agency.name} · {agency.status}</option>)}</select></label>}
                 <label>Name<input name="name" required maxLength={100} /></label>
                 <label>Email<input name="email" type="email" required /></label>
-                <label>Initial password<input type="password" name="password" minLength={12} maxLength={128} required /></label>
-                <SubmitButton className="btn" pendingLabel="Creating account…">{isSuperAdmin ? "Create user account" : "Create agent account"}</SubmitButton>
+                {isSuperAdmin && <label>Role<select name="role" defaultValue="agent"><option value="agent">Agent</option><option value="agency_admin">Agency admin</option></select></label>}
+                {!isSuperAdmin && <input type="hidden" name="role" value="agent" />}
+                <SubmitButton className="btn" pendingLabel="Sending invite…">Send email invite</SubmitButton>
               </form>
             )}
           </div>

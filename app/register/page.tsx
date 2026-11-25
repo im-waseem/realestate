@@ -1,5 +1,8 @@
 import { register } from "@/app/actions";
 import { PlatformHeader,Notice } from "@/components/platform";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = { title: "Register your agency", robots: { index: false, follow: false } };
 
 export default async function Register({ searchParams }: { searchParams: Promise<{ message?: string }> }) {
   const query = await searchParams;

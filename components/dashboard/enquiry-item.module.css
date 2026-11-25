@@ -318,11 +318,13 @@
 }
 
 .dialog {
-  width: min(680px, calc(100% - 32px));
-  max-height: min(92vh, 900px);
+  width: min(520px, calc(100% - 16px));
+  height: 100dvh;
+  max-height: 100dvh;
+  margin: 0 0 0 auto;
   padding: 30px;
   border: 1px solid #e1e5da;
-  border-radius: 12px;
+  border-radius: 16px 0 0 16px;
   color: #243b30;
   background: #fff;
   outline: none;

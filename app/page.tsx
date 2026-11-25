@@ -7,7 +7,12 @@ import { supabaseData } from "@/lib/supabase/results";
 import type { Property } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
-export const metadata: Metadata = { title: { absolute: "Waseem Realty | A place for your next chapter" } };
+export const metadata: Metadata = {
+  title: { absolute: "Waseem Realty | Good homes. Good people." },
+  description: "Discover homes for sale, rent and lease, and connect directly with the local agency behind each listing.",
+  alternates: { canonical: "/" },
+  openGraph: { title: "Waseem Realty | Good homes. Good people.", description: "Find your next home with Waseem Realty.", url: "/", type: "website" },
+};
 
 function coverImage(value: string): string | null {
   try {

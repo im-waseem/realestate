@@ -1,7 +1,11 @@
+import type { AgencyFeatures } from "@/lib/features";
+
 export type Agency = {
   id: string;
   name: string;
   status: string;
+  features?: AgencyFeatures;
+  logo_url: string;
   contact_name: string;
   contact_email: string;
   phone: string;
@@ -41,7 +45,9 @@ export type User = {
   email: string;
   role: "super_admin" | "agency_admin" | "agent";
   agency_id: string | null;
+  is_active?: boolean;
   agency_status?: string;
+  features?: AgencyFeatures;
 };
 
 export type Property = {
@@ -65,6 +71,7 @@ export type Property = {
   description: string;
   amenities: string;
   images: string;
+  featured: boolean;
   status: string;
   floor_number: number;
   total_floors: number | null;
@@ -88,7 +95,44 @@ export type Lead = {
   notes: string;
   agency_id: string;
   property_id?: string | null;
+  assigned_to?: string | null;
   created_at?: string;
+};
+
+export type LoanLead = {
+  id: string;
+  agency_id: string;
+  source_lead_id: string | null;
+  property_id: string | null;
+  customer_name: string;
+  phone: string;
+  email: string;
+  loan_amount: number;
+  monthly_income: number;
+  employment_type: "salaried" | "self_employed" | "business_owner" | "other";
+  city: string;
+  preferred_bank: string;
+  status: "new" | "docs-collected" | "submitted" | "sanctioned" | "disbursed" | "rejected";
+  assigned_to: string | null;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type LoanDocument = {
+  id: string;
+  lead_id: string;
+  agency_id: string;
+  doc_type: "id" | "address" | "income" | "bank_statements" | "property_papers";
+  file_path: string;
+  file_name: string;
+  content_type: "application/pdf" | "image/jpeg" | "image/png" | "image/webp";
+  file_size: number;
+  verified: boolean;
+  verified_by: string | null;
+  verified_at: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export type ServiceProvider = {

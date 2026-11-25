@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import Image from "next/image";
 import { submitAgencyQrEnquiry } from "@/app/actions";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -9,7 +10,21 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const { id } = await params;
   const supabase = await createSupabaseServerClient();
   const { data } = await supabase.rpc("realty_public_agency", { target_agency_id: id });
-  return { title: data?.[0] ? `${data[0].name} | Agency enquiries` : "Agency enquiry" };
+  const agency = data?.[0];
+  const title = agency ? `${agency.name} | Agency enquiries` : "Agency enquiry";
+  const description = agency ? `Contact ${agency.name} for property enquiries with Waseem Realty.` : "Contact a local Waseem Realty agency.";
+  return {
+    title,
+    description,
+    ...(agency
+      ? {
+          alternates: { canonical: `/agency/${agency.id}` },
+          robots: { index: true, follow: true },
+          openGraph: { title, description, url: `/agency/${agency.id}`, type: "website", ...(agency.logo_url ? { images: [{ url: agency.logo_url, alt: `${agency.name} logo`, width: 512, height: 512 }] } : {}) },
+          twitter: { card: agency.logo_url ? "summary" : "summary", title, description, ...(agency.logo_url ? { images: [agency.logo_url] } : {}) },
+        }
+      : { robots: { index: false, follow: false } }),
+  };
 }
 
 export default async function AgencyQrPage({ params, searchParams }: {
@@ -33,8 +48,10 @@ export default async function AgencyQrPage({ params, searchParams }: {
           </section>
           <section className="panel agency-qr-details">
             <p className="kicker">AGENCY DETAILS</p>
+            {agency.logo_url && <Image className="agency-public-logo" src={agency.logo_url} alt={`${agency.name} logo`} width={96} height={96} unoptimized />}
             <h2>{agency.name}</h2>
             {agency.phone && <p><strong>Phone</strong><a href={`tel:${agency.phone}`}>{agency.phone}</a></p>}
+            {agency.whatsapp && <p><strong>WhatsApp</strong><a href={`https://wa.me/${agency.whatsapp.replace(/\D/g, "")}`}>{agency.whatsapp}</a></p>}
             {agency.address && <p><strong>Office</strong><span>{agency.address}</span></p>}
             {agency.lat !== null && agency.lng !== null && <a className="agency-qr-map" href={`https://www.openstreetmap.org/?mlat=${agency.lat}&mlon=${agency.lng}#map=15/${agency.lat}/${agency.lng}`} target="_blank" rel="noreferrer">View office location</a>}
           </section>
@@ -46,6 +63,7 @@ export default async function AgencyQrPage({ params, searchParams }: {
                 {query.message && <p className="agency-qr-error" role="alert">{query.message}</p>}
                 <form action={submitAgencyQrEnquiry} className="agency-qr-form">
                   <input type="hidden" name="agency_id" value={agency.id} />
+                  <label className="agency-qr-honeypot" aria-hidden="true">Leave this blank<input name="website" tabIndex={-1} autoComplete="off" /></label>
                   <label>Your name<input name="name" autoComplete="name" maxLength={100} required /></label>
                   <label>Mobile number<input name="phone" type="tel" inputMode="tel" autoComplete="tel" maxLength={25} required /></label>
                   <label>Email (optional)<input name="email" type="email" autoComplete="email" maxLength={254} /></label>

@@ -1,12 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef } from "react";
 import { deleteLead, saveLead } from "@/app/actions";
 import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
 import type { Lead } from "@/lib/db";
 import styles from "./enquiry-item.module.css";
 
-const stages = ["new", "contacted", "visit scheduled", "negotiating", "closed", "lost"];
+const stages = ["new", "contacted", "visit", "closed", "lost", "visit scheduled", "negotiating"];
 const intents = ["buy", "sell", "rent", "lease"];
 const sources = [["walk_in", "Walk-in"], ["phone", "Phone call"], ["website", "Website"], ["referral", "Referral"], ["other", "Other"]];
 
@@ -14,6 +15,7 @@ const statusBadge: Record<string, string> = {
   new: "badgeNew",
   contacted: "badgeContacted",
   "visit scheduled": "badgeVisit",
+  visit: "badgeVisit",
   negotiating: "badgeNegotiating",
   closed: "badgeClosed",
   lost: "badgeLost",
@@ -33,7 +35,7 @@ function customerRef(id: string) {
 }
 
 interface EnquiryRowProps {
-  lead: Lead & { agency_name?: string };
+  lead: Lead & { agency_name?: string; property_title?: string; assignee_name?: string };
   isOpen?: boolean;
   onOpen: () => void;
 }
@@ -50,10 +52,12 @@ export function EnquiryRow({ lead, isOpen, onOpen }: EnquiryRowProps) {
           <small className={styles.customerInitials}>
             {lead.name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase()}
           </small>
+          {lead.property_title && <small className={styles.customerInitials}>{lead.property_title}</small>}
         </span>
       </td>
-      <td className={`${styles.cell} ${styles.cellAgency}`} data-label="Agency">
-        {lead.agency_name || <span className={styles.muted}>Your agency</span>}
+      <td className={`${styles.cell} ${styles.cellAgency}`} data-label="Assignee">
+        <span>{lead.assignee_name || <span className={styles.muted}>Unassigned</span>}</span>
+        {lead.agency_name && <small className={styles.muted}>{lead.agency_name}</small>}
       </td>
       <td className={`${styles.cell} ${styles.cellContact}`} data-label="Contact">
         <span className={styles.maskedPhone}>{maskPhone(lead.phone)}</span>
@@ -78,12 +82,15 @@ export function EnquiryRow({ lead, isOpen, onOpen }: EnquiryRowProps) {
 }
 
 interface EnquiryDialogProps {
-  lead: Lead & { agency_name?: string };
+  lead: Lead & { agency_name?: string; property_title?: string; assignee_name?: string };
+  assignees: { id: string; name: string }[];
+  properties: { id: string; title: string }[];
+  homeLoansEnabled: boolean;
   open: boolean;
   onClose: () => void;
 }
 
-export function EnquiryDialog({ lead, open, onClose }: EnquiryDialogProps) {
+export function EnquiryDialog({ lead, open, onClose, assignees, properties, homeLoansEnabled }: EnquiryDialogProps) {
   const dialog = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -122,9 +129,13 @@ export function EnquiryDialog({ lead, open, onClose }: EnquiryDialogProps) {
           {lead.status}
         </span>
       </div>
+      {homeLoansEnabled && <Link className="btn small" href={`/dashboard/home-loans/new?source_lead_id=${encodeURIComponent(lead.id)}`}>
+        Request home loan
+      </Link>}
       {lead.client_address && <p className={styles.requirements}><strong>Client area:</strong> {lead.client_address}</p>}
+      <p className={styles.requirements}><strong>Property:</strong> {lead.property_title || "No property selected"}</p>
       <p className={styles.notes}><strong>Source:</strong> {sources.find(([value]) => value === lead.source)?.[1] || "Other"}</p>
-      <p className={styles.requirements}>{lead.requirements}</p>
+      <p className={styles.requirements}><strong>Message:</strong> {lead.requirements}</p>
       {lead.notes && <p className={styles.notes}><strong>Internal notes:</strong> {lead.notes}</p>}
 
       <form action={saveLead} className={styles.form}>
@@ -138,6 +149,8 @@ export function EnquiryDialog({ lead, open, onClose }: EnquiryDialogProps) {
         <label>Enquiry source<select name="source" defaultValue={lead.source}>{sources.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
         <label>Looking to<select name="intent" defaultValue={lead.intent}>{intents.map((intent) => <option key={intent}>{intent}</option>)}</select></label>
         <label>Requirements<textarea name="requirements" defaultValue={lead.requirements} maxLength={2000} required /></label>
+        <label>Property<select name="property_id" defaultValue={lead.property_id || ""}><option value="">No property selected</option>{properties.map((property) => <option key={property.id} value={property.id}>{property.title}</option>)}</select></label>
+        <label>Assignee<select name="assigned_to" defaultValue={lead.assigned_to || ""}><option value="">Unassigned</option>{assignees.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
         <label>Progress<select name="status" defaultValue={lead.status}>{stages.map((stage) => <option key={stage}>{stage}</option>)}</select></label>
         <label>Internal notes<textarea name="notes" defaultValue={lead.notes || ""} maxLength={4000} /></label>
         <div className={styles.actions}>
