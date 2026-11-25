@@ -150,31 +150,11 @@ CREATE POLICY service_providers_public_read ON public.service_providers
 FOR SELECT TO anon, authenticated
 USING (is_active = TRUE);
 
--- 6. Public function to browse service providers across all agencies
-CREATE OR REPLACE FUNCTION public.realty_public_service_providers(
-  category TEXT DEFAULT '', service_area TEXT DEFAULT ''
-) RETURNS TABLE (
-  id TEXT, agency_id TEXT, name TEXT, category TEXT, phone TEXT,
-  email TEXT, service_area TEXT, address TEXT, is_active BOOLEAN, created_at TIMESTAMPTZ
-)
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
-  SELECT sp.id, sp.agency_id, sp.name, sp.category, sp.phone, sp.email,
-         sp.service_area, sp.address, sp.is_active, sp.created_at
-  FROM public.service_providers sp
-  WHERE sp.is_active = TRUE
-    AND (category = '' OR sp.category ILIKE '%' || category || '%')
-    AND (service_area = '' OR sp.service_area ILIKE '%' || service_area || '%');
-$$;
-REVOKE ALL ON FUNCTION public.realty_public_service_providers(TEXT, TEXT) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.realty_public_service_providers(TEXT, TEXT) TO anon,authenticated;
-
--- 7. Indexes for faster public and workspace lookups
+-- 6. Add index for faster public service provider lookups
 CREATE INDEX IF NOT EXISTS service_providers_public_category_idx
   ON public.service_providers (category, is_active) WHERE is_active = TRUE;
 CREATE INDEX IF NOT EXISTS service_providers_public_area_idx
   ON public.service_providers (service_area, is_active) WHERE is_active = TRUE;
 CREATE INDEX IF NOT EXISTS service_providers_workspace_agency_idx
   ON public.service_providers (agency_id, is_active);
-
-NOTIFY pgrst, 'reload schema';
 COMMIT;
