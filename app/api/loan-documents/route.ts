@@ -21,10 +21,11 @@ function detectFileType(bytes: Buffer) {
 
 export async function POST(request: Request) {
   const user = await currentUser();
-  if (!user || (user.role !== "super_admin" && (!user.agency_id || user.agency_status !== "active"))) {
-    return Response.json({ error: "Sign in to an active agency or admin account first." }, { status: 401 });
+  if (!user || (user.role !== "super_admin" && (!user.agency_id || user.agency_status !== "approved"))) {
+    return Response.json({ error: "Sign in to an approved agency or admin account first." }, { status: 401 });
   }
-  if (!hasAgencyFeature(user, "home_loans")) {
+  const canUseLoanDocuments = hasAgencyFeature(user, "home_loans") || hasAgencyFeature(user, "loans");
+  if (!canUseLoanDocuments) {
     return Response.json({ error: "Home loans are not enabled for your agency." }, { status: 404 });
   }
   if (request.headers.get("origin") !== new URL(request.url).origin) {
@@ -54,12 +55,15 @@ export async function POST(request: Request) {
     const supabase = await createSupabaseServerClient();
     const { data: lead, error: leadError } = await supabase
       .from("loan_leads")
-      .select("id,agency_id,loan_type")
+      .select("id,agency_id,loan_type,status")
       .eq("id", leadId.data)
       .maybeSingle();
     if (leadError) throw new Error(`Unable to verify the loan lead: ${leadError.message}`);
     if (!lead || (user.role !== "super_admin" && lead.agency_id !== user.agency_id)) {
       return Response.json({ error: "Home-loan lead not found." }, { status: 404 });
+    }
+    if (user.role !== "super_admin" && hasAgencyFeature(user, "loans") && !["draft", "info_requested"].includes(lead.status)) {
+      return Response.json({ error: "Documents can only be uploaded while the request is editable." }, { status: 403 });
     }
     const validTypes = LOAN_DOCUMENTS[lead.loan_type as LoanProductType].map(([type]) => type);
     if (!validTypes.includes(docType.data)) {
@@ -113,6 +117,20 @@ export async function POST(request: Request) {
         throw new Error(`Document record creation failed and the uploaded file could not be removed: ${metadataError.message}; ${cleanupError.message}`);
       }
       throw new Error(`Unable to record the uploaded loan document: ${metadataError.message}`);
+    }
+
+    if (user.role !== "super_admin" && hasAgencyFeature(user, "loans")) {
+      const { error: historyError } = await createSupabaseAdminClient().from("loan_lead_history").insert({
+        loan_lead_id: lead.id,
+        agency_id: lead.agency_id,
+        actor_id: user.id,
+        actor_name: user.name,
+        event_type: "document_uploaded",
+        from_status: lead.status,
+        to_status: lead.status,
+        remark: `Uploaded ${fileName}`,
+      });
+      if (historyError) throw new Error(`Document uploaded, but its timeline entry could not be saved: ${historyError.message}`);
     }
 
     return Response.json({ id: document.id, message: "Document uploaded." }, { status: 201 });

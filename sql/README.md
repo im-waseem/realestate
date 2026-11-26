@@ -21,7 +21,7 @@ For an existing Auth account, optionally edit the email in
 Demo data is optional and belongs in a test project, not your production data.
 
 For a single test agency login, run `provision-demo-agency.postgres.sql`. It
-creates the active `Demo Agency One` workspace. If `demoagency1@gmail.com` is
+creates the approved `Demo Agency One` workspace. If `demoagency1@gmail.com` is
 not in Auth yet, it prints a notice; create or invite the user in Supabase Auth,
 then rerun the SQL to grant agency-admin access. Set the password in Supabase
 Auth; the SQL file does not contain or change passwords.
@@ -62,6 +62,26 @@ loan switches per agency, enables only Home Loan by default where the earlier
 home-loans feature was already enabled, and keeps new agency product switches
 off until the platform admin enables them. It also adds the database guard for
 disabled products. Apply it before using the updated loan dashboard.
+
+19. `migrations/20261201_agencies_approval_rera_features.sql`
+
+The approval migration changes legacy `active` agency statuses to `approved`,
+adds approval and RERA metadata, and creates the private 5 MB certificate bucket.
+Apply it after the loan-products migration.
+
+20. `migrations/20261202_loan_masters.sql`
+
+Adds editable loan types and lenders plus platform-only commission rules. Agency
+accounts can select active loan types and active lenders through RLS, while
+commission rules remain unreadable to agency roles. Apply after the agency
+approval migration.
+
+21. `migrations/20261203_loan_leads.sql`
+
+Adds the feature-gated agency loan application workflow, status timeline,
+admin-only review fields, and admin summary views. Agency access is limited to
+the signed-in approved agency; submitted requests become read-only. Apply after
+the loan-masters migration.
 
 The marketplace migration contains all three feature modules in one transaction.
 The service-provider migration adds an agency-owned directory for local trades.

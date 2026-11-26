@@ -72,17 +72,17 @@ describe("currentUser", () => {
     await expect(currentUser()).rejects.toThrow("Apply sql/migrations/20261125_agency_feature_flags.sql");
   });
 
-  it("returns the user when session, active profile and active agency exist", async () => {
+  it("returns the user when session, active profile and approved agency exist", async () => {
     clientWithProfile(
       { id: "u-1", name: "Admin", email: "a@e.com", role: "agency_admin", agency_id: "ag-1", is_active: true },
-      { id: "ag-1", status: "active", features: { home_loans: true, tools: false } },
+      { id: "ag-1", status: "approved", features: { home_loans: true, tools: false } },
     );
     const user = await currentUser();
     expect(user).toMatchObject({
       id: "u-1",
       role: "agency_admin",
       agency_id: "ag-1",
-      agency_status: "active",
+      agency_status: "approved",
       features: { home_loans: true, tools: false },
     });
   });
@@ -100,12 +100,12 @@ describe("currentUser", () => {
     expect(await currentUser()).toBeUndefined();
   });
 
-  it("returns undefined when the agency is suspended (agent)", async () => {
+  it("returns the user with suspended agency status for the access-status page", async () => {
     clientWithProfile(
       { id: "u-1", name: "Agent", email: "a@e.com", role: "agent", agency_id: "ag-1", is_active: true },
       { id: "ag-1", status: "suspended" },
     );
-    expect(await currentUser()).toBeUndefined();
+    expect((await currentUser())?.agency_status).toBe("suspended");
   });
 });
 
@@ -113,7 +113,7 @@ describe("requireAgencyFeature", () => {
   it("hides disabled features from agency users", async () => {
     clientWithProfile(
       { id: "u-1", name: "Agent", email: "a@e.com", role: "agent", agency_id: "ag-1", is_active: true },
-      { id: "ag-1", status: "active", features: { home_loans: false, tools: false } },
+      { id: "ag-1", status: "approved", features: { home_loans: false, tools: false } },
     );
     await expect(requireAgencyFeature("tools")).rejects.toThrow("NOT_FOUND");
   });
@@ -134,12 +134,12 @@ describe("requireUser", () => {
     expect(redirectCalls).toContain("/no-access");
   });
 
-  it("redirects to /no-access when the agency is not active", async () => {
+  it("keeps non-approved agency users on the dashboard access-status view", async () => {
     clientWithProfile(
       { id: "u-1", name: "Agent", email: "a@e.com", role: "agent", agency_id: "ag-1", is_active: true },
       { id: "ag-1", status: "suspended" },
     );
-    await expect(requireUser()).rejects.toThrow("REDIRECT:/no-access");
+    await expect(requireUser()).rejects.toThrow("REDIRECT:/dashboard");
   });
 
   it("returns the user for a super_admin without requiring an active agency", async () => {

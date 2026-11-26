@@ -86,11 +86,12 @@ interface EnquiryDialogProps {
   assignees: { id: string; name: string }[];
   properties: { id: string; title: string }[];
   homeLoansEnabled: boolean;
+  loansEnabled?: boolean;
   open: boolean;
   onClose: () => void;
 }
 
-export function EnquiryDialog({ lead, open, onClose, assignees, properties, homeLoansEnabled }: EnquiryDialogProps) {
+export function EnquiryDialog({ lead, open, onClose, assignees, properties, homeLoansEnabled, loansEnabled = false }: EnquiryDialogProps) {
   const dialog = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -132,6 +133,7 @@ export function EnquiryDialog({ lead, open, onClose, assignees, properties, home
       {homeLoansEnabled && <Link className="btn small" href={`/dashboard/home-loans/new?source_lead_id=${encodeURIComponent(lead.id)}`}>
         Request home loan
       </Link>}
+      {loansEnabled && <Link className="btn small" href={`/dashboard/loans/new?source_lead_id=${encodeURIComponent(lead.id)}`}>Request loan</Link>}
       {lead.client_address && <p className={styles.requirements}><strong>Client area:</strong> {lead.client_address}</p>}
       <p className={styles.requirements}><strong>Property:</strong> {lead.property_title || "No property selected"}</p>
       <p className={styles.notes}><strong>Source:</strong> {sources.find(([value]) => value === lead.source)?.[1] || "Other"}</p>

@@ -6,6 +6,15 @@ export type Agency = {
   status: string;
   is_active: boolean;
   features?: AgencyFeatures;
+  approved_by?: string | null;
+  approved_at?: string | null;
+  rejection_reason?: string;
+  rera_agent_number?: string;
+  rera_state?: string;
+  rera_certificate_path?: string;
+  rera_verified?: boolean;
+  rera_verified_by?: string | null;
+  rera_verified_at?: string | null;
   logo_url: string;
   contact_name: string;
   contact_email: string;
@@ -103,7 +112,8 @@ export type Lead = {
 export type LoanLead = {
   id: string;
   agency_id: string;
-  loan_type: "personal_loan" | "business_loan" | "home_loan" | "lap" | "education_loan";
+  loan_type: string;
+  created_by: string | null;
   source_lead_id: string | null;
   property_id: string | null;
   customer_name: string;
@@ -111,10 +121,21 @@ export type LoanLead = {
   email: string;
   loan_amount: number;
   monthly_income: number;
+  tenure_months: number;
   employment_type: "salaried" | "self_employed" | "business_owner" | "other";
   city: string;
   preferred_bank: string;
-  status: "new" | "docs-collected" | "submitted" | "sanctioned" | "disbursed" | "rejected";
+  preferred_lender_id: string | null;
+  assigned_lender_id: string | null;
+  consent: boolean;
+  consent_at: string | null;
+  forwarded_at: string | null;
+  admin_remarks: string;
+  sanctioned_amount: number | null;
+  sanctioned_at: string | null;
+  disbursed_amount: number | null;
+  disbursed_at: string | null;
+  status: "draft" | "info_requested" | "submitted_to_admin" | "under_review" | "sanctioned" | "disbursed" | "rejected" | "cancelled";
   assigned_to: string | null;
   notes: string;
   created_at: string;

@@ -1,9 +1,10 @@
-export const AGENCY_FEATURES = ["home_loans", "tools"] as const;
+export const AGENCY_FEATURES = ["home_loans", "loans", "tools"] as const;
 export type AgencyFeature = (typeof AGENCY_FEATURES)[number];
 export type AgencyFeatures = Record<AgencyFeature, boolean>;
 
 const DEFAULT_FEATURES: AgencyFeatures = {
   home_loans: false,
+  loans: false,
   tools: false,
 };
 
@@ -14,6 +15,7 @@ export function normalizeAgencyFeatures(value: unknown): AgencyFeatures {
   const features = value as Partial<Record<AgencyFeature, unknown>>;
   return {
     home_loans: features.home_loans === true,
+    loans: features.loans === true,
     tools: features.tools === true,
   };
 }

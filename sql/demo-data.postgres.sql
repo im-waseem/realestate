@@ -6,8 +6,8 @@ BEGIN;
 
 INSERT INTO public.agencies(id,name,status,phone,address,lat,lng)
 VALUES
-  ('demo-agency-1','Demo Agency One','active','+91 90000 10001','12 Residency Road, Ashok Nagar, Bengaluru, Karnataka',12.9668,77.6017),
-  ('demo-agency-2','Demo Agency Two','active','+91 90000 10002','42 Linking Road, Bandra West, Mumbai, Maharashtra',19.0606,72.8362)
+  ('demo-agency-1','Demo Agency One','approved','+91 90000 10001','12 Residency Road, Ashok Nagar, Bengaluru, Karnataka',12.9668,77.6017),
+  ('demo-agency-2','Demo Agency Two','approved','+91 90000 10002','42 Linking Road, Bandra West, Mumbai, Maharashtra',19.0606,72.8362)
 ON CONFLICT(id) DO UPDATE SET
   name=excluded.name,phone=excluded.phone,address=excluded.address,lat=excluded.lat,lng=excluded.lng;
 

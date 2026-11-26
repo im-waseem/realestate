@@ -13,7 +13,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ nam
   if (publicPhotoError) return new Response("Unable to verify photo access.", { status: 500 });
   if (!publicPhoto) {
     const user = await currentUser();
-    if (!user || (user.role !== "super_admin" && (!user.agency_id || user.agency_status !== "active"))) return new Response("Not found", { status: 404 });
+    if (!user || (user.role !== "super_admin" && (!user.agency_id || user.agency_status !== "approved"))) return new Response("Not found", { status: 404 });
     const { data: upload, error } = await supabase.from("uploads").select("agency_id").eq("name", name).maybeSingle();
     if (error) return new Response("Unable to verify photo access.", { status: 500 });
     if (!upload) return new Response("Not found", { status: 404 });

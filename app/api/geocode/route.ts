@@ -3,7 +3,7 @@ import { createSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export async function GET(request: Request) {
   const user = await currentUser();
-  if (!user || !["super_admin", "agency_admin"].includes(user.role) || (user.role !== "super_admin" && user.agency_status !== "active")) return Response.json({ error: "Administrator access required." }, { status: 403 });
+  if (!user || !["super_admin", "agency_admin"].includes(user.role) || (user.role !== "super_admin" && user.agency_status !== "approved")) return Response.json({ error: "Administrator access required." }, { status: 403 });
   const q = new URL(request.url).searchParams.get("q")?.trim() || "";
   if (q.length < 3 || q.length > 500) return Response.json({ error: "Enter a valid office address." }, { status: 400 });
   try {

@@ -26,7 +26,7 @@ function coverImage(value: string): string | null {
 
 export default async function HomePage() {
   const user = await currentUser();
-  const agencyId = user?.agency_status === "active" && (user.role === "agency_admin" || user.role === "agent")
+  const agencyId = user?.agency_status === "approved" && (user.role === "agency_admin" || user.role === "agent")
     ? user.agency_id
     : null;
   const supabase = await createSupabaseServerClient();

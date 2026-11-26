@@ -7,7 +7,7 @@ import { createLoanLead, updateLoanLead, verifyLoanDocument } from "@/app/action
 import { useToast } from "@/components/dashboard/toaster";
 import type { Lead, LoanDocument, LoanLead } from "@/lib/db";
 import styles from "./home-loans.module.css";
-import { LOAN_DOCUMENTS, LOAN_PRODUCTS, loanProductLabel, type LoanProductType } from "@/lib/loan-products";
+import { LOAN_DOCUMENTS, loanProductLabel, type LoanProductType } from "@/lib/loan-products";
 
 const statuses = ["new", "docs-collected", "submitted", "sanctioned", "disbursed", "rejected"] as const;
 const money = (value: number) => new Intl.NumberFormat("en-IN", {
@@ -218,7 +218,7 @@ export function HomeLoansBoard({
                 <small>Private files · PDF, JPEG, PNG or WebP · up to 10 MB</small>
               </div>
               <p className={styles.noDocuments}>Typical starting checklist based on Ruloans guidance. The lender may request additional documents for the applicant and product.</p>
-              {LOAN_DOCUMENTS[selectedLead.loan_type].map(([docType, label]) => {
+              {(LOAN_DOCUMENTS[selectedLead.loan_type] || []).map(([docType, label]) => {
                 const documents = selectedLead.documents.filter((document) => document.doc_type === docType);
                 return (
                   <div className={styles.documentRow} key={docType}>
@@ -271,6 +271,7 @@ export function NewHomeLoanForm({
   initialPropertyId,
   sourceLead,
   enabledProductsByAgency,
+  lenders,
 }: {
   agencies: AgencyOption[];
   properties: PropertyOption[];
@@ -279,7 +280,8 @@ export function NewHomeLoanForm({
   initialAgencyId: string;
   initialPropertyId: string;
   sourceLead?: SourceLead;
-  enabledProductsByAgency: Record<string, LoanProductType[]>;
+  enabledProductsByAgency: Record<string, { id: LoanProductType; label: string }[]>;
+  lenders: { name: string; lender_type: string }[];
 }) {
   const [agencyId, setAgencyId] = useState(initialAgencyId);
   const [propertyId, setPropertyId] = useState(initialPropertyId);
@@ -321,9 +323,9 @@ export function NewHomeLoanForm({
       {sourceLead && <input type="hidden" name="source_lead_id" value={sourceLead.id} />}
 
       <div className={styles.formGrid}>
-        <label>Loan type
-          <select key={agencyId} name="loan_type" defaultValue={enabledProducts.includes("home_loan") ? "home_loan" : enabledProducts[0]} required>
-            {LOAN_PRODUCTS.filter((product) => enabledProducts.includes(product.id)).map((product) => <option key={product.id} value={product.id}>{product.label}</option>)}
+      <label>Loan type
+          <select key={agencyId} name="loan_type" defaultValue={enabledProducts.find((product) => product.id === "home_loan")?.id || enabledProducts[0]?.id} required>
+            {enabledProducts.map((product) => <option key={product.id} value={product.id}>{product.label}</option>)}
           </select>
         </label>
         <label>Customer name<input name="customer_name" defaultValue={sourceLead?.name || ""} maxLength={100} required /></label>
@@ -352,7 +354,7 @@ export function NewHomeLoanForm({
             <option value="other">Other</option>
           </select>
         </label>
-        <label>Preferred bank (optional)<input name="preferred_bank" maxLength={150} /></label>
+        <label>Preferred lender (optional)<select name="preferred_bank" defaultValue=""><option value="">No lender selected</option>{lenders.map((lender) => <option key={`${lender.lender_type}:${lender.name}`} value={lender.name}>{lender.name} ({lender.lender_type.toUpperCase()})</option>)}</select></label>
         <label>Assign to (optional)
           <select name="assigned_to" defaultValue="">
             <option value="">Unassigned</option>

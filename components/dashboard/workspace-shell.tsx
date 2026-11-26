@@ -6,7 +6,7 @@ import styles from "./workspace.module.css";
 
 type ViewState = { view: string; setView: (view: string) => void };
 const View = createContext<ViewState>({ view: "overview", setView: () => {} });
-const sections = new Set(["overview", "agencies", "agency-details", "inventory", "leads", "home-loans", "loans", "tools", "services", "team"]);
+const sections = new Set(["overview", "agencies", "agency-details", "inventory", "leads", "home-loans", "loans", "analytics", "tools", "services", "team"]);
 function readView(fallback = "overview") {
   const hash = window.location.hash.slice(1);
   return sections.has(hash) ? hash : fallback;

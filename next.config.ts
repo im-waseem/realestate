@@ -14,6 +14,7 @@ const nextConfig: NextConfig = {
   experimental: {
     agentFeedback: true,
     agentUpgrade: "security",
+    serverActions: { bodySizeLimit: "6mb" },
   },
   turbopack: {
     rules: {

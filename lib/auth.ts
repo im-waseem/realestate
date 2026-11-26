@@ -62,8 +62,8 @@ export async function requireAgencyFeature(feature: AgencyFeature) {
 export async function requireUser() {
   const user = await currentUser();
   if (!user) redirect("/no-access");
-  if (user.role !== "super_admin" && user.agency_status !== "active") {
-    redirect("/no-access");
+  if (user.role !== "super_admin" && user.agency_status !== "approved") {
+    redirect("/dashboard");
   }
   return user;
 }

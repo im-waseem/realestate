@@ -18,14 +18,14 @@ vi.mock("next/cache", () => ({
 vi.mock("next/headers", () => ({
   headers: vi.fn(() => ({ get: () => undefined })),
 }));
+vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: vi.fn() }));
+vi.mock("@/lib/supabase/admin", () => ({ createSupabaseAdminClient: vi.fn() }));
 
 // --- Mock lib/auth (requireUser) -------------------------------------------
 vi.mock("@/lib/auth", () => ({
   requireUser: (...args: unknown[]) => requireUserImpl(...args),
 }));
 const requireUserImpl = vi.fn();
-import { requireUser } from "@/lib/auth";
-const mockRequireUser = vi.mocked(requireUser);
 
 // --- Mock Supabase clients --------------------------------------------------
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -43,7 +43,7 @@ beforeEach(() => {
   revalidateCalls.length = 0;
   vi.resetAllMocks();
   clearClient();
-  mockRequireUser.mockResolvedValue(user);
+  requireUserImpl.mockResolvedValue(user);
 });
 
 afterEach(() => {
@@ -89,8 +89,8 @@ const validPropertyForm = () => {
   return form;
 };
 describe("saveProperty", () => {
-  it("creates a property for the user's active agency", async () => {
-    serverClientWithTables({ agencies: [{ id: agencyId, status: "active" }], properties: [] });
+  it("creates a property for the user's approved agency", async () => {
+    serverClientWithTables({ agencies: [{ id: agencyId, status: "approved" }], properties: [] });
     adminClientWithRpc({ realty_owner_phone_registered_elsewhere: false });
     const form = validPropertyForm();
     const result = await saveProperty(form);
@@ -100,16 +100,16 @@ describe("saveProperty", () => {
     expect(revalidateCalls).toContain("/dashboard/properties");
   });
 
-  it("rejects when the agency is not active", async () => {
+  it("rejects when the agency is not approved", async () => {
     serverClientWithTables({ agencies: [{ id: agencyId, status: "pending" }] });
     const form = validPropertyForm();
     const result = await saveProperty(form);
     expect(result.ok).toBe(false);
-    expect(result.message).toContain("not active");
+    expect(result.message).toContain("not approved");
   });
 
   it("rejects invalid input (missing title)", async () => {
-    serverClientWithTables({ agencies: [{ id: agencyId, status: "active" }] });
+    serverClientWithTables({ agencies: [{ id: agencyId, status: "approved" }] });
     const form = new FormData();
     form.set("uploading", "no");
     const result = await saveProperty(form);
@@ -118,7 +118,7 @@ describe("saveProperty", () => {
 
   it("updates an existing property owned by the user's agency", async () => {
     serverClientWithTables({
-      agencies: [{ id: agencyId, status: "active" }],
+      agencies: [{ id: agencyId, status: "approved" }],
       properties: [{ id: "p-1", agency_id: agencyId, title: "Old" }],
     });
     adminClientWithRpc({ realty_owner_phone_registered_elsewhere: false });
@@ -130,7 +130,7 @@ describe("saveProperty", () => {
 
   it("rejects updating a property belonging to another agency", async () => {
     serverClientWithTables({
-      agencies: [{ id: agencyId, status: "active" }],
+      agencies: [{ id: agencyId, status: "approved" }],
       properties: [{ id: "p-1", agency_id: "other-agency", title: "Other" }],
     });
     const form = validPropertyForm();
@@ -180,9 +180,9 @@ describe("deleteProperty", () => {
 });
 
 describe("createLead (enquiry form)", () => {
-  it("creates a lead routed to the user's active agency", async () => {
+  it("creates a lead routed to the user's approved agency", async () => {
     serverClientWithTables({
-      agencies: [{ id: agencyId, status: "active" }],
+      agencies: [{ id: agencyId, status: "approved" }],
       leads: [],
     });
     const form = new FormData();
@@ -198,7 +198,7 @@ describe("createLead (enquiry form)", () => {
   });
 
   it("rejects an invalid phone number", async () => {
-    serverClientWithTables({ agencies: [{ id: agencyId, status: "active" }] });
+    serverClientWithTables({ agencies: [{ id: agencyId, status: "approved" }] });
     const form = new FormData();
     form.set("name", "Visitor");
     form.set("phone", "not-a-phone");
@@ -208,7 +208,7 @@ describe("createLead (enquiry form)", () => {
     await expect(createLead(form)).rejects.toThrow(/valid phone/);
   });
 
-  it("rejects when the agency is not active", async () => {
+  it("rejects when the agency is not approved", async () => {
     serverClientWithTables({ agencies: [{ id: agencyId, status: "suspended" }] });
     const form = new FormData();
     form.set("name", "Visitor");
@@ -216,7 +216,7 @@ describe("createLead (enquiry form)", () => {
     form.set("source", "walk_in");
     form.set("intent", "buy");
     form.set("requirements", "Looking for a home");
-    await expect(createLead(form)).rejects.toThrow(/active agency/);
+    await expect(createLead(form)).rejects.toThrow(/approved agency/);
   });
 });
 

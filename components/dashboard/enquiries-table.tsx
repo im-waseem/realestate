@@ -6,11 +6,12 @@ import { EnquiryDialog } from "./enquiry-item";
 import { EnquiryRow } from "./enquiry-item";
 import enquiryStyles from "./enquiry-item.module.css";
 
-export function EnquiriesTable({ leads, assignees, properties, homeLoansEnabled = false }: {
+export function EnquiriesTable({ leads, assignees, properties, homeLoansEnabled = false, loansEnabled = false }: {
   leads: (Lead & { agency_name?: string; property_title?: string; assignee_name?: string })[];
   assignees: { id: string; name: string; agency_id: string | null }[];
   properties: { id: string; title: string; agency_id: string }[];
   homeLoansEnabled?: boolean;
+  loansEnabled?: boolean;
 }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const isOpen = (id: string) => openId === id;
@@ -48,7 +49,7 @@ export function EnquiriesTable({ leads, assignees, properties, homeLoansEnabled 
           lead={lead}
           assignees={assignees.filter((person) => person.agency_id === lead.agency_id)}
           properties={properties.filter((property) => property.agency_id === lead.agency_id)}
-          homeLoansEnabled={homeLoansEnabled}
+          homeLoansEnabled={homeLoansEnabled} loansEnabled={loansEnabled}
           open={isOpen(lead.id)}
           onClose={() => setOpenId(null)}
         />

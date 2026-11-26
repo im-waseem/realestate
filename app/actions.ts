@@ -11,6 +11,7 @@ import { requireUser } from "@/lib/auth";
 import type { Property } from "@/lib/db";
 import { propertySchema, propertyStatusToDatabase } from "@/lib/property-schema";
 import { hasAgencyFeature, normalizeAgencyFeatures } from "@/lib/features";
+import { canAgencyEditLoanLead } from "@/lib/loan-leads/access";
 import { z } from "zod";
 
 function field(form: FormData, key: string, max = 500) {
@@ -52,12 +53,6 @@ function optionalEmail(form: FormData) {
   return value;
 }
 
-function password(form: FormData) {
-  const value = field(form, "password", 128);
-  if (value.length < 12) throw new Error("Use at least 12 characters for the password.");
-  return value;
-}
-
 function safeReturnPath(value: FormDataEntryValue | null) {
   const path = String(value || "").trim();
   return path.startsWith("/") && !path.startsWith("//") && !path.includes("\\") ? path : "/dashboard";
@@ -77,9 +72,84 @@ function throwIfError(error: { message: string } | null) {
 }
 
 const loanOptionalText = z.string().trim().max(100).transform((value) => value || null);
+const agencyRegistrationSchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  agency: z.string().trim().min(2).max(150),
+  email: z.string().trim().email().max(254).transform((value) => value.toLowerCase()),
+  phone: z.string().trim().regex(/^[+\d ()-]{7,25}$/),
+  password: z.string().min(12).max(128),
+  rera_agent_number: z.string().trim().min(1).max(100).regex(/^[A-Za-z0-9/-]+$/),
+  rera_state: z.string().trim().min(2).max(100),
+  certificate: z.instanceof(File),
+});
+const agencyDecisionSchema = z.object({
+  agency_id: z.string().trim().min(1).max(100),
+  decision: z.enum(["approve", "reject", "suspend", "reactivate"]),
+  reason: z.string().trim().max(1000),
+});
+const loanTypeSchema = z.object({
+  id: z.string().uuid().optional(),
+  code: z.string().trim().toLowerCase().regex(/^[a-z][a-z0-9_]{1,49}$/),
+  name: z.string().trim().min(2).max(100),
+  sort_order: z.coerce.number().int().min(0).max(100000),
+  is_active: z.enum(["true", "false"]).transform((value) => value === "true"),
+});
+const lenderSchema = z.object({
+  id: z.string().uuid().optional(),
+  name: z.string().trim().min(2).max(150),
+  lender_type: z.enum(["bank", "nbfc", "hfc"]),
+  is_active: z.enum(["true", "false"]).transform((value) => value === "true"),
+});
+const commissionRuleSchema = z.object({
+  id: z.string().uuid().optional(),
+  loan_type_id: z.string().uuid(),
+  lender_id: z.string().uuid().optional().or(z.literal("")),
+  agency_id: z.string().trim().max(100).optional().or(z.literal("")),
+  basis: z.enum(["percent", "flat"]),
+  percent: z.preprocess((value) => value === "" || value == null ? undefined : Number(value), z.number().finite().min(0).max(100).optional()),
+  flat_amount: z.preprocess((value) => value === "" || value == null ? undefined : Number(value), z.number().finite().min(0).max(999999999999.99).optional()),
+  minimum_commission: z.preprocess((value) => value === "" || value == null ? undefined : Number(value), z.number().finite().min(0).max(999999999999.99).optional()),
+  maximum_commission: z.preprocess((value) => value === "" || value == null ? undefined : Number(value), z.number().finite().min(0).max(999999999999.99).optional()),
+  agency_share_percent: z.coerce.number().finite().min(0).max(100),
+  effective_from: z.string().date(),
+  effective_to: z.string().date().optional().or(z.literal("")),
+  is_active: z.enum(["true", "false"]).transform((value) => value === "true"),
+}).superRefine((value, context) => {
+  if (value.basis === "percent" && value.percent === undefined) context.addIssue({ code: "custom", path: ["percent"], message: "Enter the commission percentage." });
+  if (value.basis === "flat" && value.flat_amount === undefined) context.addIssue({ code: "custom", path: ["flat_amount"], message: "Enter the flat commission amount." });
+  if (value.minimum_commission !== undefined && value.maximum_commission !== undefined && value.minimum_commission > value.maximum_commission) context.addIssue({ code: "custom", path: ["maximum_commission"], message: "Maximum must be at least the minimum." });
+  if (value.effective_to && value.effective_to < value.effective_from) context.addIssue({ code: "custom", path: ["effective_to"], message: "End date must be on or after the start date." });
+});
+const agencyLoanLeadSchema = z.object({
+  id: z.string().uuid().optional(),
+  loan_type: z.string().trim().regex(/^[a-z][a-z0-9_]{1,49}$/),
+  customer_name: z.string().trim().min(2).max(100),
+  phone: z.string().trim().regex(/^[+\d ()-]{7,25}$/),
+  email: z.string().trim().max(254).refine((value) => !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)),
+  city: z.string().trim().min(1).max(100),
+  employment_type: z.enum(["salaried", "self_employed", "business_owner", "other"]),
+  monthly_income: z.coerce.number().finite().min(0.01).max(999999999999.99),
+  loan_amount: z.coerce.number().finite().min(0.01).max(999999999999.99),
+  tenure_months: z.coerce.number().int().min(1).max(600),
+  property_id: z.string().trim().max(100).optional().or(z.literal("")),
+  source_lead_id: z.string().trim().max(100).optional().or(z.literal("")),
+  preferred_lender_id: z.string().uuid().optional().or(z.literal("")),
+  notes: z.string().trim().max(4000),
+  consent: z.enum(["true", "false"]).transform((value) => value === "true"),
+});
+const adminLoanUpdateSchema = z.object({
+  id: z.string().uuid(),
+  status: z.enum(["info_requested", "under_review", "sanctioned", "disbursed", "rejected", "cancelled"]),
+  admin_remarks: z.string().trim().max(4000),
+  assigned_lender_id: z.string().uuid().optional().or(z.literal("")),
+  sanctioned_amount: z.preprocess((value) => value === "" || value == null ? undefined : Number(value), z.number().finite().min(0).max(999999999999.99).optional()),
+  sanctioned_at: z.string().date().optional().or(z.literal("")),
+  disbursed_amount: z.preprocess((value) => value === "" || value == null ? undefined : Number(value), z.number().finite().min(0).max(999999999999.99).optional()),
+  disbursed_at: z.string().date().optional().or(z.literal("")),
+});
 const loanCreateSchema = z.object({
   agency_id: z.string().trim().min(1).max(100),
-  loan_type: z.enum(["personal_loan", "business_loan", "home_loan", "lap", "education_loan"]),
+  loan_type: z.string().trim().min(2).max(50),
   source_lead_id: loanOptionalText,
   property_id: loanOptionalText,
   customer_name: z.string().trim().min(1).max(100),
@@ -135,6 +205,7 @@ async function recordActivity(agencyId: string | null, actor: string, action: st
 
 export async function login(form: FormData) {
   const nextPath = safeReturnPath(form.get("next"));
+  let agencyNeedsReview = false;
   try {
     const supabase = await createSupabaseServerClient();
     const emailAddress = email(form);
@@ -148,11 +219,11 @@ export async function login(form: FormData) {
     if (!userData.user) throw new Error("Email or password is incorrect.");
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
-      .select("id,agency_id,is_active")
+      .select("id,agency_id,role,is_active")
       .eq("id", userData.user.id)
       .maybeSingle();
     throwIfError(profileError);
-    if (!profile || !profile.is_active) {
+    if (!profile || !profile.is_active || !["super_admin", "agency_admin", "agent"].includes(profile.role)) {
       await supabase.auth.signOut();
       throw new Error(profile ? "This account is deactivated. Contact an agency admin." : "This account has no workspace profile. Ask the main admin to configure it.");
     }
@@ -163,17 +234,13 @@ export async function login(form: FormData) {
         .eq("id", profile.agency_id)
         .maybeSingle();
       throwIfError(agencyError);
-      if (agency?.status !== "active") {
-        await supabase.auth.signOut();
-        throw new Error(agency?.status === "pending"
-          ? "Your registration is awaiting main admin approval."
-          : "Your agency workspace is suspended or unavailable.");
-      }
+      agencyNeedsReview = agency?.status !== "approved";
     }
   } catch (error) {
     const message = encodeURIComponent(error instanceof Error ? error.message : "Unable to sign in. Please try again.");
     redirect(`/login?message=${message}&next=${encodeURIComponent(nextPath)}`);
   }
+  if (agencyNeedsReview) redirect("/dashboard");
   redirect(nextPath);
 }
 
@@ -186,16 +253,29 @@ export async function logout() {
 
 export async function register(form: FormData) {
   try {
-    const name = field(form, "name", 100);
-    const agencyName = field(form, "agency", 150);
-    const phone = field(form, "phone", 25);
-    const address = field(form, "address", 500);
-    const lat = optionalNumber(form, "lat", -90, 90);
-    const lng = optionalNumber(form, "lng", -180, 180);
-    const emailAddress = email(form);
-    const newPassword = password(form);
-    if (!/^[+\d ()-]{7,25}$/.test(phone)) throw new Error("Enter a valid agency phone number.");
-    if ((lat === null) !== (lng === null)) throw new Error("Provide both map coordinates or leave both blank.");
+    const parsed = agencyRegistrationSchema.safeParse({
+      name: form.get("name"),
+      agency: form.get("agency"),
+      email: form.get("email"),
+      phone: form.get("phone"),
+      password: form.get("password"),
+      rera_agent_number: form.get("rera_agent_number"),
+      rera_state: form.get("rera_state"),
+      certificate: form.get("rera_certificate"),
+    });
+    if (!parsed.success) throw new Error(parsed.error.issues[0]?.message || "Check the agency registration details.");
+    const { name, agency: agencyName, email: emailAddress, phone, password: newPassword, rera_agent_number: reraAgentNumber, rera_state: reraState, certificate } = parsed.data;
+    if (certificate.size < 1 || certificate.size > 5 * 1024 * 1024) throw new Error("RERA certificate must be no larger than 5 MB.");
+    const certificateExtension = certificate.name.toLowerCase().endsWith(".pdf") ? "pdf" :
+      /\.jpe?g$/i.test(certificate.name) ? "jpg" : "";
+    if (!certificateExtension || !["application/pdf", "image/jpeg"].includes(certificate.type)) {
+      throw new Error("Upload a PDF or JPG RERA certificate.");
+    }
+    const certificateBytes = Buffer.from(await certificate.arrayBuffer());
+    const validCertificate = certificateExtension === "pdf"
+      ? certificateBytes.subarray(0, 5).toString("ascii") === "%PDF-"
+      : certificateBytes.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]));
+    if (!validCertificate) throw new Error("The certificate file contents do not match its PDF or JPG type.");
 
     const admin = createSupabaseAdminClient();
     const clientIp = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() || "local";
@@ -207,6 +287,9 @@ export async function register(form: FormData) {
     });
     throwIfError(rateLimitError);
     if (!registrationAllowed) throw new Error("Too many registration attempts. Please try again later.");
+
+    const agencyId = randomUUID();
+    const certificatePath = `${agencyId}/rera-certificate.${certificateExtension}`;
     const { data: authData, error: authError } = await admin.auth.admin.createUser({
       email: emailAddress,
       password: newPassword,
@@ -216,7 +299,12 @@ export async function register(form: FormData) {
     throwIfError(authError);
     if (!authData.user) throw new Error("Unable to create the account.");
 
-    const agencyId = randomUUID();
+    const { error: certificateError } = await admin.storage.from("agency-rera-documents").upload(certificatePath, certificateBytes, {
+      contentType: certificateExtension === "pdf" ? "application/pdf" : "image/jpeg",
+      cacheControl: "0",
+      upsert: false,
+    });
+    if (certificateError) await rollbackRegistration(admin, authData.user.id, agencyId, certificateError.message);
     const { error: agencyError } = await admin.from("agencies").insert({
       id: agencyId,
       name: agencyName,
@@ -224,11 +312,12 @@ export async function register(form: FormData) {
       contact_name: name,
       contact_email: emailAddress,
       phone,
-      address,
-      lat,
-      lng,
+      rera_agent_number: reraAgentNumber,
+      rera_state: reraState,
+      rera_certificate_path: certificatePath,
     });
     if (agencyError) {
+      await admin.storage.from("agency-rera-documents").remove([certificatePath]);
       await rollbackRegistration(admin, authData.user.id, agencyId, agencyError.message);
     }
     const { error: profileError } = await admin.from("profiles").insert({
@@ -239,6 +328,7 @@ export async function register(form: FormData) {
       agency_id: agencyId,
     });
     if (profileError) {
+      await admin.storage.from("agency-rera-documents").remove([certificatePath]);
       await rollbackRegistration(admin, authData.user.id, agencyId, profileError.message);
     }
     const { error: activityError } = await admin.from("activity").insert({
@@ -247,11 +337,79 @@ export async function register(form: FormData) {
       actor: name,
       action: "Registered agency and is awaiting admin approval",
     });
-    if (activityError) await rollbackRegistration(admin, authData.user.id, agencyId, activityError.message);
+    if (activityError) {
+      await admin.storage.from("agency-rera-documents").remove([certificatePath]);
+      await rollbackRegistration(admin, authData.user.id, agencyId, activityError.message);
+    }
   } catch (error) {
     fail("/register", error);
   }
   redirect("/login?message=Registration+submitted.+Your+agency+will+be+available+after+admin+approval.");
+}
+
+export async function decideAgencyApproval(form: FormData) {
+  const user = await requireUser();
+  if (user.role !== "super_admin") fail("/dashboard/admin/agencies", new Error("Only the platform admin can review agencies."));
+  const parsed = agencyDecisionSchema.safeParse({
+    agency_id: String(form.get("agency_id") || ""),
+    decision: String(form.get("decision") || ""),
+    reason: String(form.get("reason") || ""),
+  });
+  if (!parsed.success) fail("/dashboard/admin/agencies", new Error(parsed.error.issues[0]?.message || "Invalid agency decision."));
+  const { agency_id: agencyId, decision, reason } = parsed.data;
+  if (decision === "reject" && !reason) fail("/dashboard/admin/agencies", new Error("A reason is required when rejecting an agency."));
+
+  try {
+    const supabase = await createSupabaseServerClient();
+    const { data: agency, error: agencyError } = await supabase.from("agencies").select("id,name,status").eq("id", agencyId).maybeSingle();
+    throwIfError(agencyError);
+    if (!agency) throw new Error("Agency not found.");
+    if (decision === "approve" && !["pending", "rejected"].includes(agency.status)) throw new Error("Only pending or rejected agencies can be approved.");
+    if (decision === "reject" && agency.status !== "pending") throw new Error("Only pending agencies can be rejected.");
+    if (decision === "suspend" && agency.status !== "approved") throw new Error("Only approved agencies can be suspended.");
+    if (decision === "reactivate" && agency.status !== "suspended") throw new Error("Only suspended agencies can be reactivated.");
+
+    const values = decision === "approve" || decision === "reactivate"
+      ? { status: "approved", approved_by: user.id, approved_at: new Date().toISOString(), rejection_reason: "", is_active: true }
+      : decision === "reject"
+        ? { status: "rejected", approved_by: null, approved_at: null, rejection_reason: reason, is_active: false }
+        : { status: "suspended", is_active: false };
+    const { error } = await supabase.from("agencies").update(values).eq("id", agencyId);
+    throwIfError(error);
+    await recordActivity(agencyId, user.name, `${decision} agency ${agency.name}${decision === "reject" ? `: ${reason}` : ""}`);
+  } catch (error) {
+    fail("/dashboard/admin/agencies", error);
+  }
+  revalidatePath("/dashboard/admin/agencies");
+  revalidatePath("/dashboard");
+  revalidatePath("/");
+}
+
+export async function verifyAgencyRera(form: FormData) {
+  const user = await requireUser();
+  if (user.role !== "super_admin") fail("/dashboard/admin/agencies", new Error("Only the platform admin can verify RERA details."));
+  const agencyId = z.string().trim().min(1).max(100).safeParse(String(form.get("agency_id") || ""));
+  if (!agencyId.success) fail("/dashboard/admin/agencies", new Error("Agency not found."));
+  try {
+    const supabase = await createSupabaseServerClient();
+    const { data: agency, error: agencyError } = await supabase.from("agencies")
+      .select("id,name,rera_agent_number,rera_state,rera_certificate_path")
+      .eq("id", agencyId.data).maybeSingle();
+    throwIfError(agencyError);
+    if (!agency || !agency.rera_agent_number || !agency.rera_state || !agency.rera_certificate_path) {
+      throw new Error("RERA number, state, and certificate must be present before verification.");
+    }
+    const { error } = await supabase.from("agencies").update({
+      rera_verified: true,
+      rera_verified_by: user.id,
+      rera_verified_at: new Date().toISOString(),
+    }).eq("id", agencyId.data);
+    throwIfError(error);
+    await recordActivity(agencyId.data, user.name, `Verified RERA details for ${agency.name}`);
+  } catch (error) {
+    fail("/dashboard/admin/agencies", error);
+  }
+  revalidatePath("/dashboard/admin/agencies");
 }
 
 export async function createLead(form: FormData) {
@@ -268,7 +426,7 @@ export async function createLead(form: FormData) {
       .eq("id", agencyId)
       .maybeSingle();
     throwIfError(agencyError);
-    if (!agency || (user.role !== "super_admin" && agency.status !== "active")) throw new Error("Select an active agency.");
+    if (!agency || (user.role !== "super_admin" && agency.status !== "approved")) throw new Error("Select an approved agency.");
     const propertyId = optionalField(form, "property_id", 100);
     if (propertyId) {
       const { data: property, error: propertyError } = await supabase.from("properties").select("id").eq("id", propertyId).eq("agency_id", agencyId).maybeSingle();
@@ -359,8 +517,8 @@ export async function saveProperty(form: FormData) {
       .eq("id", agencyId)
       .maybeSingle();
     throwIfError(agencyError);
-    if (!agency || (user.role !== "super_admin" && agency.status !== "active")) {
-      throw new Error("Your agency workspace is not active.");
+    if (!agency || (user.role !== "super_admin" && agency.status !== "approved")) {
+      throw new Error("Your agency workspace is not approved.");
     }
     const values = {
       title: input.title, intent: input.intent, type: input.type, price: input.price,
@@ -534,9 +692,10 @@ export async function updateAgencyProfile(form: FormData) {
 export async function updateAgencyFeature(form: FormData) {
   const user = await requireUser();
   if (user.role !== "super_admin") fail("/dashboard", new Error("Only the main admin can change agency features."));
+  const returnToApprovals = form.get("return_to") === "/dashboard/admin/agencies";
   try {
     const agencyId = field(form, "agency_id", 100);
-    const feature = choice(form, "feature", ["home_loans", "tools"] as const);
+    const feature = choice(form, "feature", ["home_loans", "loans", "tools"] as const);
     const enabledValue = choice(form, "enabled", ["true", "false"] as const);
     const supabase = await createSupabaseServerClient();
     const { data: agency, error: agencyError } = await supabase
@@ -562,7 +721,8 @@ export async function updateAgencyFeature(form: FormData) {
   }
   revalidatePath("/dashboard");
   revalidatePath("/dashboard/services");
-  redirect("/dashboard#agencies");
+  revalidatePath("/dashboard/admin/agencies");
+  if (!returnToApprovals) redirect("/dashboard#agencies");
 }
 
 export async function updateAgencyLoanProduct(form: FormData) {
@@ -571,7 +731,7 @@ export async function updateAgencyLoanProduct(form: FormData) {
   let agencyId = "";
   try {
     agencyId = field(form, "agency_id", 100);
-    const loanType = choice(form, "loan_type", ["personal_loan", "business_loan", "home_loan", "lap", "education_loan"] as const);
+    const loanType = z.string().trim().regex(/^[a-z][a-z0-9_]{1,49}$/).parse(field(form, "loan_type", 50));
     const enabled = choice(form, "enabled", ["true", "false"] as const) === "true";
     const supabase = await createSupabaseServerClient();
     const { error } = await supabase.from("agency_loan_products").upsert({ agency_id: agencyId, loan_type: loanType, enabled }, { onConflict: "agency_id,loan_type" });
@@ -594,19 +754,107 @@ export async function updateAgencyLoanProduct(form: FormData) {
   redirect("/dashboard#loans");
 }
 
+function loanSettingsError(tab: string, error: unknown): never {
+  const message = encodeURIComponent(error instanceof Error ? error.message : "Unable to save loan settings.");
+  redirect(`/dashboard/admin/loan-settings?tab=${tab}&message=${message}`);
+}
+
+export async function saveLoanType(form: FormData) {
+  const user = await requireUser();
+  if (user.role !== "super_admin") loanSettingsError("types", new Error("Only the platform admin can edit loan types."));
+  const parsed = loanTypeSchema.safeParse({
+    id: String(form.get("id") || "") || undefined,
+    code: String(form.get("code") || ""),
+    name: String(form.get("name") || ""),
+    sort_order: form.get("sort_order"),
+    is_active: String(form.get("is_active") || "true"),
+  });
+  if (!parsed.success) loanSettingsError("types", new Error(parsed.error.issues[0]?.message || "Invalid loan type."));
+  const { id, ...values } = parsed.data;
+  const supabase = await createSupabaseServerClient();
+  const result = id
+    ? await supabase.from("loan_types").update(values).eq("id", id)
+    : await supabase.from("loan_types").insert(values);
+  if (result.error) loanSettingsError("types", new Error(result.error.message));
+  revalidatePath("/dashboard/admin/loan-settings");
+  redirect("/dashboard/admin/loan-settings?tab=types&message=Loan+type+saved");
+}
+
+export async function saveLender(form: FormData) {
+  const user = await requireUser();
+  if (user.role !== "super_admin") loanSettingsError("lenders", new Error("Only the platform admin can edit lenders."));
+  const parsed = lenderSchema.safeParse({
+    id: String(form.get("id") || "") || undefined,
+    name: String(form.get("name") || ""),
+    lender_type: String(form.get("lender_type") || ""),
+    is_active: String(form.get("is_active") || "true"),
+  });
+  if (!parsed.success) loanSettingsError("lenders", new Error(parsed.error.issues[0]?.message || "Invalid lender."));
+  const { id, ...values } = parsed.data;
+  const supabase = await createSupabaseServerClient();
+  const result = id
+    ? await supabase.from("lenders").update(values).eq("id", id)
+    : await supabase.from("lenders").insert(values);
+  if (result.error) loanSettingsError("lenders", new Error(result.error.message));
+  revalidatePath("/dashboard/admin/loan-settings");
+  redirect("/dashboard/admin/loan-settings?tab=lenders&message=Lender+saved");
+}
+
+export async function saveCommissionRule(form: FormData) {
+  const user = await requireUser();
+  if (user.role !== "super_admin") loanSettingsError("rules", new Error("Only the platform admin can edit commission rules."));
+  const parsed = commissionRuleSchema.safeParse({
+    id: String(form.get("id") || "") || undefined,
+    loan_type_id: String(form.get("loan_type_id") || ""),
+    lender_id: String(form.get("lender_id") || ""),
+    agency_id: String(form.get("agency_id") || ""),
+    basis: String(form.get("basis") || ""),
+    percent: form.get("percent"),
+    flat_amount: form.get("flat_amount"),
+    minimum_commission: form.get("minimum_commission"),
+    maximum_commission: form.get("maximum_commission"),
+    agency_share_percent: form.get("agency_share_percent"),
+    effective_from: String(form.get("effective_from") || ""),
+    effective_to: String(form.get("effective_to") || ""),
+    is_active: String(form.get("is_active") || "true"),
+  });
+  if (!parsed.success) loanSettingsError("rules", new Error(parsed.error.issues[0]?.message || "Invalid commission rule."));
+  const { id, basis, percent, flat_amount, lender_id, agency_id, effective_to, ...rest } = parsed.data;
+  const values = {
+    ...rest,
+    basis,
+    percent: basis === "percent" ? percent ?? null : null,
+    flat_amount: basis === "flat" ? flat_amount ?? null : null,
+    lender_id: lender_id || null,
+    agency_id: agency_id || null,
+    minimum_commission: rest.minimum_commission ?? null,
+    maximum_commission: rest.maximum_commission ?? null,
+    effective_to: effective_to || null,
+  };
+  const supabase = await createSupabaseServerClient();
+  const result = id
+    ? await supabase.from("commission_rules").update(values).eq("id", id)
+    : await supabase.from("commission_rules").insert(values);
+  if (result.error) loanSettingsError("rules", new Error(result.error.message));
+  revalidatePath("/dashboard/admin/loan-settings");
+  redirect("/dashboard/admin/loan-settings?tab=rules&message=Commission+rule+saved");
+}
+
 export async function setAgencyStatus(form: FormData) {
   const user = await requireUser();
   if (user.role !== "super_admin") fail("/dashboard", new Error("Only the main admin can change agency status."));
   try {
     const id = field(form, "agency_id", 100);
-    const status = choice(form, "status", ["active", "suspended"]);
+    const status = choice(form, "status", ["approved", "suspended"]);
     const supabase = await createSupabaseServerClient();
     const { data: agency, error: agencyError } = await supabase.from("agencies").select("id,name,status").eq("id", id).maybeSingle();
     throwIfError(agencyError);
     if (!agency) throw new Error("Agency not found.");
-    const { error } = await supabase.from("agencies").update({ status }).eq("id", id);
+    const { error } = await supabase.from("agencies").update(status === "approved"
+      ? { status, approved_by: user.id, approved_at: new Date().toISOString(), rejection_reason: "", is_active: true }
+      : { status, is_active: false }).eq("id", id);
     throwIfError(error);
-    const action = status === "active"
+    const action = status === "approved"
       ? `${agency.status === "pending" ? "Approved" : "Reactivated"} agency ${agency.name}`
       : `Suspended agency ${agency.name}`;
     await recordActivity(id, user.name, action);
@@ -633,7 +881,7 @@ export async function setAgencyActive(form: FormData) {
     if (!agency) throw new Error("Agency not found.");
     const { error } = await supabase
       .from("agencies")
-      .update({ is_active: active, status: active ? "active" : "suspended" })
+      .update({ is_active: active, status: active ? "approved" : "suspended" })
       .eq("id", id);
     throwIfError(error);
     await recordActivity(id, user.name, `${active ? "Enabled" : "Disabled"} agency ${agency.name}`);
@@ -697,7 +945,7 @@ export async function addStaff(form: FormData) {
     const supabase = await createSupabaseServerClient();
     const { data: agency, error: agencyError } = await supabase.from("agencies").select("id,status").eq("id", agencyId).maybeSingle();
     throwIfError(agencyError);
-    if (!agency || (user.role !== "super_admin" && agency.status !== "active")) throw new Error("Select an active agency.");
+    if (!agency || (user.role !== "super_admin" && agency.status !== "approved")) throw new Error("Select an approved agency.");
     const emailAddress = email(form);
     const name = field(form, "name", 100);
     const role = user.role === "super_admin" ? choice(form, "role", ["agent", "agency_admin"] as const) : "agent";
@@ -752,7 +1000,7 @@ export async function updateStaff(form: FormData) {
     if (!agencyId) throw new Error("Select an agency.");
     const { data: agency, error: agencyError } = await supabase.from("agencies").select("id,status").eq("id", agencyId).maybeSingle();
     throwIfError(agencyError);
-    if (!agency || (user.role !== "super_admin" && agency.status !== "active")) throw new Error("Select an active agency.");
+    if (!agency || (user.role !== "super_admin" && agency.status !== "approved")) throw new Error("Select an approved agency.");
 
     const admin = createSupabaseAdminClient();
     const { error: authError } = await admin.auth.admin.updateUserById(id, {
@@ -1035,8 +1283,8 @@ export async function createLoanLead(form: FormData) {
       .eq("id", agencyId)
       .maybeSingle();
     throwIfError(agencyError);
-    if (!agency || (user.role !== "super_admin" && agency.status !== "active")) {
-      return { ok: false as const, message: "Select an active agency." };
+    if (!agency || (user.role !== "super_admin" && agency.status !== "approved")) {
+      return { ok: false as const, message: "Select an approved agency." };
     }
 
     if (values.property_id) {
@@ -1109,7 +1357,7 @@ export async function updateLoanLead(form: FormData) {
   }
 
   const id = z.string().uuid().safeParse(String(form.get("id") || "").trim());
-  const status = z.enum(["new", "docs-collected", "submitted", "sanctioned", "disbursed", "rejected"])
+  const status = z.enum(["draft", "info_requested", "submitted_to_admin", "under_review", "sanctioned", "disbursed", "rejected", "cancelled"])
     .safeParse(String(form.get("status") || ""));
   const notes = z.string().trim().max(4000).safeParse(String(form.get("notes") || ""));
   const assignedTo = z.string().trim().uuid().or(z.literal("")).safeParse(String(form.get("assigned_to") || "").trim());
@@ -1121,12 +1369,15 @@ export async function updateLoanLead(form: FormData) {
     const supabase = await createSupabaseServerClient();
     const { data: lead, error: leadError } = await supabase
       .from("loan_leads")
-      .select("id,agency_id")
+      .select("id,agency_id,customer_name,status,notes,assigned_to")
       .eq("id", id.data)
       .maybeSingle();
     throwIfError(leadError);
     if (!lead || (user.role !== "super_admin" && lead.agency_id !== user.agency_id)) {
       return { ok: false as const, message: "Home-loan lead not found." };
+    }
+    if (user.role !== "super_admin") {
+      return { ok: false as const, message: "Use the loan lead form to edit drafts; only the platform admin can update the review pipeline." };
     }
     const assigneeId = assignedTo.data || null;
     if (assigneeId) {
@@ -1147,10 +1398,224 @@ export async function updateLoanLead(form: FormData) {
       .update({ status: status.data, notes: notes.data, assigned_to: assigneeId })
       .eq("id", id.data);
     throwIfError(error);
+    const changes = [
+      lead.status !== status.data ? `status ${lead.status} → ${status.data}` : "",
+      lead.notes !== notes.data ? "notes updated" : "",
+      lead.assigned_to !== assigneeId ? "assignee changed" : "",
+    ].filter(Boolean);
+    if (user.role !== "super_admin" && changes.length) {
+      await recordActivity(lead.agency_id, user.name, `Updated home-loan request: ${lead.customer_name} (${changes.join(", ")})`);
+    }
     revalidatePath("/dashboard/home-loans");
-    return { ok: true as const, message: "Home-loan lead updated." };
+    revalidatePath("/dashboard");
+    return { ok: true as const, message: changes.length
+      ? "Home-loan lead updated. The platform admin can see it in the Loans activity feed."
+      : "No loan details changed." };
   } catch (error) {
     return { ok: false as const, message: error instanceof Error ? error.message : "Unable to update the home-loan lead." };
+  }
+}
+
+async function recordLoanLeadHistory(lead: { id: string; agency_id: string }, user: Awaited<ReturnType<typeof requireUser>>, eventType: string, fromStatus: string | null, toStatus: string | null, remark = "") {
+  const admin = createSupabaseAdminClient();
+  const { error } = await admin.from("loan_lead_history").insert({
+    loan_lead_id: lead.id,
+    agency_id: lead.agency_id,
+    actor_id: user.id,
+    actor_name: user.name,
+    event_type: eventType,
+    from_status: fromStatus,
+    to_status: toStatus,
+    remark,
+  });
+  throwIfError(error);
+}
+
+export async function saveAgencyLoanLead(form: FormData) {
+  const user = await requireUser();
+  if (user.role === "super_admin" || !hasAgencyFeature(user, "loans") || !user.agency_id) {
+    return { ok: false as const, message: "Loan applications are not enabled for this agency." };
+  }
+  const id = String(form.get("id") || "").trim();
+  const parsed = agencyLoanLeadSchema.safeParse({
+    id: id || undefined,
+    loan_type: String(form.get("loan_type") || ""),
+    customer_name: String(form.get("customer_name") || ""),
+    phone: String(form.get("phone") || ""),
+    email: String(form.get("email") || ""),
+    city: String(form.get("city") || ""),
+    employment_type: String(form.get("employment_type") || ""),
+    monthly_income: form.get("monthly_income"),
+    loan_amount: form.get("loan_amount"),
+    tenure_months: form.get("tenure_months"),
+    property_id: String(form.get("property_id") || ""),
+    source_lead_id: String(form.get("source_lead_id") || ""),
+    preferred_lender_id: String(form.get("preferred_lender_id") || ""),
+    notes: String(form.get("notes") || ""),
+    consent: String(form.get("consent") || "false"),
+  });
+  if (!parsed.success) return { ok: false as const, message: parsed.error.issues[0]?.message || "Check the loan details." };
+
+  try {
+    const supabase = await createSupabaseServerClient();
+    let existing: { id: string; agency_id: string; status: string } | null = null;
+    if (parsed.data.id) {
+      const result = await supabase.from("loan_leads").select("id,agency_id,status")
+        .eq("id", parsed.data.id).eq("agency_id", user.agency_id).maybeSingle();
+      throwIfError(result.error);
+      existing = result.data;
+      if (!existing || !canAgencyEditLoanLead(user, existing)) return { ok: false as const, message: "Loan request not found or is locked." };
+    }
+
+    const { data: loanType, error: loanTypeError } = await supabase.from("loan_types")
+      .select("code").eq("code", parsed.data.loan_type).eq("is_active", true).maybeSingle();
+    throwIfError(loanTypeError);
+    if (!loanType) return { ok: false as const, message: "Select an active loan type." };
+
+    if (parsed.data.property_id) {
+      const { data, error } = await supabase.from("properties").select("id").eq("id", parsed.data.property_id).eq("agency_id", user.agency_id).maybeSingle();
+      throwIfError(error);
+      if (!data) return { ok: false as const, message: "Select a property from your agency." };
+    }
+    if (parsed.data.source_lead_id) {
+      const { data, error } = await supabase.from("leads").select("id").eq("id", parsed.data.source_lead_id).eq("agency_id", user.agency_id).maybeSingle();
+      throwIfError(error);
+      if (!data) return { ok: false as const, message: "Select an enquiry from your agency." };
+    }
+    if (parsed.data.preferred_lender_id) {
+      const { data, error } = await supabase.from("lenders").select("id").eq("id", parsed.data.preferred_lender_id).eq("is_active", true).maybeSingle();
+      throwIfError(error);
+      if (!data) return { ok: false as const, message: "Select an active lender." };
+    }
+
+    const values = {
+      loan_type: parsed.data.loan_type,
+      customer_name: parsed.data.customer_name,
+      phone: parsed.data.phone,
+      email: parsed.data.email.toLowerCase(),
+      city: parsed.data.city,
+      employment_type: parsed.data.employment_type,
+      monthly_income: parsed.data.monthly_income,
+      loan_amount: parsed.data.loan_amount,
+      tenure_months: parsed.data.tenure_months,
+      property_id: parsed.data.property_id || null,
+      source_lead_id: parsed.data.source_lead_id || null,
+      preferred_lender_id: parsed.data.preferred_lender_id || null,
+      notes: parsed.data.notes,
+      consent: parsed.data.consent,
+    };
+    let loanId = parsed.data.id;
+    if (existing) {
+      const { error } = await supabase.from("loan_leads").update(values).eq("id", existing.id).eq("agency_id", user.agency_id);
+      throwIfError(error);
+    } else {
+      loanId = randomUUID();
+      const { error } = await supabase.from("loan_leads").insert({
+        ...values,
+        id: loanId,
+        agency_id: user.agency_id,
+        created_by: user.id,
+        status: "draft",
+      });
+      throwIfError(error);
+    }
+    const timelineLead = { id: loanId!, agency_id: user.agency_id };
+    await recordLoanLeadHistory(timelineLead, user, existing ? "updated" : "created", existing?.status || null, existing?.status || "draft");
+    revalidatePath("/dashboard/loans");
+    revalidatePath("/dashboard");
+    redirect(`/dashboard/loans/${loanId}`);
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("NEXT_REDIRECT")) throw error;
+    return { ok: false as const, message: error instanceof Error ? error.message : "Unable to save loan request." };
+  }
+}
+
+export async function submitAgencyLoanLead(form: FormData) {
+  const user = await requireUser();
+  if (user.role === "super_admin" || !hasAgencyFeature(user, "loans") || !user.agency_id) {
+    return { ok: false as const, message: "Loan applications are not enabled for this agency." };
+  }
+  const id = z.string().uuid().safeParse(String(form.get("id") || "").trim());
+  const consent = String(form.get("consent") || "") === "on";
+  if (!id.success || !consent) return { ok: false as const, message: "Consent is required before submitting to the platform admin." };
+  try {
+    const supabase = await createSupabaseServerClient();
+    const { data: lead, error: leadError } = await supabase.from("loan_leads")
+      .select("id,agency_id,status,customer_name,phone,city,loan_amount,monthly_income,tenure_months,consent")
+      .eq("id", id.data).eq("agency_id", user.agency_id).maybeSingle();
+    throwIfError(leadError);
+    if (!lead) return { ok: false as const, message: "Loan request not found." };
+    if (!["draft", "info_requested"].includes(lead.status)) return { ok: false as const, message: "This loan request has already been submitted and is locked." };
+    if (!lead.customer_name || !lead.phone || !lead.city || !lead.loan_amount || !lead.monthly_income || !lead.tenure_months) {
+      return { ok: false as const, message: "Complete the required loan details before submitting." };
+    }
+    const { error } = await supabase.from("loan_leads").update({ status: "submitted_to_admin", consent: true }).eq("id", id.data).eq("agency_id", user.agency_id);
+    throwIfError(error);
+    await recordLoanLeadHistory({ id: lead.id, agency_id: lead.agency_id }, user, "submitted", lead.status, "submitted_to_admin");
+    await recordActivity(lead.agency_id, user.name, `Submitted loan request for admin review: ${lead.customer_name}`);
+    revalidatePath("/dashboard/loans");
+    revalidatePath("/dashboard/admin/loans");
+    redirect(`/dashboard/loans/${id.data}?message=Submitted+to+admin+for+review`);
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("NEXT_REDIRECT")) throw error;
+    return { ok: false as const, message: error instanceof Error ? error.message : "Unable to submit loan request." };
+  }
+}
+
+export async function updateAdminLoanLead(form: FormData) {
+  const user = await requireUser();
+  if (user.role !== "super_admin") return { ok: false as const, message: "Only the platform admin can review loan requests." };
+  const parsed = adminLoanUpdateSchema.safeParse({
+    id: String(form.get("id") || ""),
+    status: String(form.get("status") || ""),
+    admin_remarks: String(form.get("admin_remarks") || ""),
+    assigned_lender_id: String(form.get("assigned_lender_id") || ""),
+    sanctioned_amount: form.get("sanctioned_amount"),
+    sanctioned_at: String(form.get("sanctioned_at") || ""),
+    disbursed_amount: form.get("disbursed_amount"),
+    disbursed_at: String(form.get("disbursed_at") || ""),
+  });
+  if (!parsed.success) return { ok: false as const, message: parsed.error.issues[0]?.message || "Check the review fields." };
+  const value = parsed.data;
+  if (["info_requested", "rejected"].includes(value.status) && !value.admin_remarks) {
+    return { ok: false as const, message: value.status === "info_requested" ? "Add a remark describing the information needed." : "Add a reason before rejecting this request." };
+  }
+  if (value.status === "sanctioned" && (value.sanctioned_amount === undefined || !value.sanctioned_at)) {
+    return { ok: false as const, message: "Enter the sanctioned amount and date." };
+  }
+  if (value.status === "disbursed" && (value.disbursed_amount === undefined || value.disbursed_amount <= 0 || !value.disbursed_at)) {
+    return { ok: false as const, message: "Enter a positive disbursed amount and date." };
+  }
+  try {
+    const supabase = await createSupabaseServerClient();
+    const { data: lead, error: leadError } = await supabase.from("loan_leads").select("id,agency_id,status,customer_name")
+      .eq("id", value.id).maybeSingle();
+    throwIfError(leadError);
+    if (!lead) return { ok: false as const, message: "Loan request not found." };
+    if (value.assigned_lender_id) {
+      const { data: lender, error } = await supabase.from("lenders").select("id").eq("id", value.assigned_lender_id).eq("is_active", true).maybeSingle();
+      throwIfError(error);
+      if (!lender) return { ok: false as const, message: "Select an active lender." };
+    }
+    const { error } = await supabase.from("loan_leads").update({
+      status: value.status,
+      admin_remarks: value.admin_remarks,
+      assigned_lender_id: value.assigned_lender_id || null,
+      sanctioned_amount: value.sanctioned_amount ?? null,
+      sanctioned_at: value.sanctioned_at || null,
+      disbursed_amount: value.disbursed_amount ?? null,
+      disbursed_at: value.disbursed_at || null,
+    }).eq("id", value.id);
+    throwIfError(error);
+    const eventType = lead.status !== value.status ? "status_changed" : "updated";
+    await recordLoanLeadHistory({ id: lead.id, agency_id: lead.agency_id }, user, eventType, lead.status, value.status, value.admin_remarks);
+    await recordActivity(lead.agency_id, user.name, `Reviewed loan request for ${lead.customer_name}: ${value.status}`);
+    revalidatePath("/dashboard/admin/loans");
+    revalidatePath(`/dashboard/admin/loans/${value.id}`);
+    revalidatePath("/dashboard/loans");
+    return { ok: true as const, message: "Loan request updated." };
+  } catch (error) {
+    return { ok: false as const, message: error instanceof Error ? error.message : "Unable to update loan request." };
   }
 }
 

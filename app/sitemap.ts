@@ -7,7 +7,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || "https://realestatewaseem.vercel.app").replace(/\/$/, "");
   const admin = createSupabaseAdminClient();
   const [agencyResult, firstPage] = await Promise.all([
-    admin.from("agencies").select("id,created_at").eq("status", "active"),
+    admin.from("agencies").select("id,created_at").eq("status", "approved"),
     admin.from("properties").select("id,agency_id,created_at").eq("status", "published").order("created_at", { ascending: false }).range(0, 999),
   ]);
   if (agencyResult.error || firstPage.error) throw new Error("Unable to generate sitemap.");

@@ -41,8 +41,8 @@ export default async function Editor({ params, searchParams }: {
       <h1>{property ? "Edit" : "Add a"} <em>property.</em></h1>
       <p className="muted">{isAdmin ? "Manage listings for any agency." : "Manage properties in your agency workspace."}</p>
       <p className="property-import-prompt">Working from a spreadsheet? <Link href="/dashboard/import?kind=properties">Import listings from Excel</Link>.</p>
-      {property && hasAgencyFeature(user, "home_loans") && (
-        <p><Link className="btn small workspace-secondary" href={`/dashboard/home-loans/new?property_id=${encodeURIComponent(property.id)}`}>Request home loan for a customer</Link></p>
+      {property && hasAgencyFeature(user, "loans") && (
+        <p><Link className="btn small workspace-secondary" href={`/dashboard/loans/new?property_id=${encodeURIComponent(property.id)}`}>Request loan for a customer</Link></p>
       )}
       <PropertyEditorForm property={property} agencies={agencies} isAdmin={isAdmin} agencyId={agencyId} returnPath={isAdmin ? "/dashboard#inventory" : "/dashboard/properties"} />
     </main>

@@ -21,16 +21,13 @@ export default async function Register({ searchParams }: { searchParams: Promise
           <p className="muted">Your request will be reviewed by the main admin before workspace access is enabled.</p>
           <Notice message={query.message} />
           <form action={register} className="stack">
-            <label>Your name<input name="name" required maxLength={100} /></label>
+            <label>Contact name<input name="name" required maxLength={100} /></label>
             <label>Agency name<input name="agency" required maxLength={150} /></label>
-            <label>Agency phone<input name="phone" type="tel" required maxLength={25} /></label>
-            <label>Office address<input name="address" required maxLength={500} /></label>
-            <p className="muted">Optional: enter map coordinates to show your agency location in the private dashboard.</p>
-            <div className="form-grid">
-              <label>Latitude<input name="lat" type="number" min="-90" max="90" step="any" /></label>
-              <label>Longitude<input name="lng" type="number" min="-180" max="180" step="any" /></label>
-            </div>
+            <label>Phone<input name="phone" type="tel" required maxLength={25} /></label>
             <label>Work email<input name="email" type="email" required maxLength={254} /></label>
+            <label>RERA agent number<input name="rera_agent_number" required maxLength={100} /></label>
+            <label>RERA state<input name="rera_state" required maxLength={100} /></label>
+            <label>RERA certificate (PDF or JPG, up to 5 MB)<input name="rera_certificate" type="file" accept="application/pdf,.pdf,image/jpeg,.jpg,.jpeg" required /></label>
             <label>Password<input name="password" type="password" autoComplete="new-password" minLength={12} maxLength={128} required /><small>At least 12 characters.</small></label>
             <button className="btn">Submit for approval →</button>
           </form>

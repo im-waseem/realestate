@@ -9,12 +9,12 @@ import { WorkspaceShell, WorkspaceSection, WorkspaceNavLink } from "@/components
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { requireUser } from "@/lib/auth";
+import { currentUser } from "@/lib/auth";
 import type { Lead, LoanDocument, LoanLead, Property, ServiceProvider, User } from "@/lib/db";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { supabaseData } from "@/lib/supabase/results";
 import { sevenDaysAgoIso } from "@/lib/dates";
-import { addStaff, deleteAgency, deleteServiceProvider, logout, saveServiceProvider, setAgencyActive, setAgencyStatus, setStaffActive, updateAgencyFeature, updateAgencyLoanProduct, updateStaff } from "@/app/actions";
+import { addStaff, deleteAgency, deleteServiceProvider, logout, saveServiceProvider, setStaffActive, updateAgencyFeature, updateAgencyLoanProduct, updateStaff } from "@/app/actions";
 import { Notice } from "@/components/platform";
 import { ConfirmDeleteButton } from "@/components/confirm-delete-button";
 import { EnquiriesTable } from "@/components/dashboard/enquiries-table";
@@ -23,14 +23,15 @@ import enquiryStyles from "@/components/dashboard/enquiry-item.module.css";
 import { hasAgencyFeature, type AgencyFeature } from "@/lib/features";
 import { DashboardTools } from "@/components/tools/dashboard-tools";
 import { HomeLoansBoard } from "@/components/dashboard/home-loans";
-import { LOAN_PRODUCTS, LOAN_PRODUCT_IMAGES, type LoanProductType } from "@/lib/loan-products";
+import { LOAN_PRODUCT_IMAGES, type LoanProductType } from "@/lib/loan-products";
+import { AdminAnalyticsPanel } from "@/components/dashboard/admin-analytics";
 
 type Agency = {
   id: string;
   name: string;
   status: string;
   is_active: boolean;
-  features: { home_loans: boolean; tools: boolean };
+  features: { home_loans: boolean; loans: boolean; tools: boolean };
   logo_url: string;
   contact_name: string;
   contact_email: string;
@@ -131,12 +132,12 @@ function AgencyFeatureControl({ agency, feature, label }: { agency: Agency; feat
   );
 }
 
-function AgencyLoanProductControl({ agencyId, product, enabled }: { agencyId: string; product: (typeof LOAN_PRODUCTS)[number]; enabled: boolean }) {
+function AgencyLoanProductControl({ agencyId, product, enabled }: { agencyId: string; product: { id: string; label: string }; enabled: boolean }) {
   return <form action={updateAgencyLoanProduct} className="agency-feature-control">
     <input type="hidden" name="agency_id" value={agencyId} />
     <input type="hidden" name="loan_type" value={product.id} />
     <input type="hidden" name="enabled" value={enabled ? "false" : "true"} />
-    <span className="agency-loan-product"><Image src={LOAN_PRODUCT_IMAGES[product.id]} alt="" width={64} height={48} unoptimized /><span>{product.label}</span></span>
+    <span className="agency-loan-product">{LOAN_PRODUCT_IMAGES[product.id] ? <Image src={LOAN_PRODUCT_IMAGES[product.id]} alt="" width={64} height={48} unoptimized /> : <span className="dashboard-sidebar-icon" aria-hidden="true">₹</span>}<span>{product.label}</span></span>
     <span className={`badge ${enabled ? "active" : "suspended"}`}>{enabled ? "Enabled" : "Disabled"}</span>
     <SubmitButton className="btn small workspace-secondary">{enabled ? "Disable" : "Enable"}</SubmitButton>
   </form>;
@@ -244,11 +245,38 @@ function SidebarIcon({ name }: { name: string }) {
 }
 
 export default async function Dashboard({ searchParams }: { searchParams: Promise<{ message?: string; leadsPage?: string; enquiryStatus?: string; enquirySearch?: string; assignedTo?: string; propertyId?: string; openAgency?: string; openLoanAgency?: string }> }) {
-  const user = await requireUser();
+  const user = await currentUser();
+  if (!user) redirect("/no-access");
+  if (user.role !== "super_admin" && user.agency_status !== "approved") {
+    const supabase = await createSupabaseServerClient();
+    const { data: agency } = user.agency_id
+      ? await supabase.from("agencies").select("name,rejection_reason").eq("id", user.agency_id).maybeSingle()
+      : { data: null };
+    const suspended = user.agency_status === "suspended";
+    const rejected = user.agency_status === "rejected";
+    return (
+      <WorkspaceShell theme="agency" defaultView="overview" allowedViews={[]}>
+        <aside className="dashboard-sidebar">
+          <Link className="dashboard-sidebar-brand" href="/"><span className="dashboard-sidebar-brandmark">{agency?.name?.slice(0, 1).toUpperCase() || "W"}</span><span className="dashboard-sidebar-brandtext">{agency?.name || "WASEEM REALTY"}<small>WORKSPACE</small></span></Link>
+          <div className="dashboard-sidebar-account"><span className="dashboard-sidebar-avatar">{user.name.slice(0, 1).toUpperCase()}</span><span className="dashboard-sidebar-account-copy"><strong>{user.name}</strong><small>Agency workspace</small></span></div>
+          <p className="dashboard-sidebar-label">WORKSPACE</p>
+          <nav aria-label="Dashboard sections" className="dashboard-sidebar-nav"><Link href="/dashboard" aria-current="page">Account status</Link></nav>
+          <div className="dashboard-sidebar-footer"><form action={logout}><button type="submit"><SidebarIcon name="logout" /> Sign out</button></form></div>
+        </aside>
+        <main className="dashboard-main">
+          <header className="dashboard-topbar"><p className="kicker">AGENCY WORKSPACE</p><form action={logout}><button className="dashboard-topbar-signout" type="submit">Sign out</button></form></header>
+          <section className="dashboard-content">
+            <div className="workspace-title"><div><p className="kicker">WORKSPACE ACCESS</p><h1>{suspended ? "Access suspended" : rejected ? "Application not approved" : "Awaiting approval"}</h1><p className="muted">{suspended ? "Your agency workspace is suspended. Contact Waseem Realty support for help restoring access." : rejected ? "Your agency registration was not approved. Contact Waseem Realty support if you need more information." : "Your registration and RERA documents are waiting for review. Dashboard access will be available after approval."}</p>{rejected && agency?.rejection_reason && <p><strong>Reason:</strong> {agency.rejection_reason}</p>}</div></div>
+          </section>
+        </main>
+      </WorkspaceShell>
+    );
+  }
   const query = await searchParams;
   const isSuperAdmin = user.role === "super_admin";
   const toolsEnabled = hasAgencyFeature(user, "tools");
   const homeLoansEnabled = hasAgencyFeature(user, "home_loans");
+  const loansEnabled = hasAgencyFeature(user, "loans");
   const supabase = await createSupabaseServerClient();
   const parsedPage = Number(query.leadsPage);
   const requestedPage = Number.isSafeInteger(parsedPage) && parsedPage > 0 && parsedPage <= 1_000_000 ? parsedPage : 1;
@@ -364,6 +392,13 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
   const agencyLoanProducts = loanProductResult
     ? supabaseData(loanProductResult.data, loanProductResult.error, "Unable to load agency loan products. Apply sql/migrations/20261130_agency_loan_products.sql") as { agency_id: string; loan_type: LoanProductType; enabled: boolean }[]
     : [];
+  const loanTypeResult = isSuperAdmin
+    ? await supabase.from("loan_types").select("code,name,is_active").order("sort_order").order("name")
+    : null;
+  const loanCatalog = loanTypeResult
+    ? supabaseData(loanTypeResult.data, loanTypeResult.error, "Unable to load loan types. Apply sql/migrations/20261202_loan_masters.sql")
+      .filter((item) => item.is_active).map((item) => ({ id: item.code, label: item.name }))
+    : [];
   const properties: DashboardProperty[] = rawProperties.map((property) => ({
     ...property,
     agency_name: agenciesById.get(property.agency_id) || agencyDetails?.name,
@@ -415,6 +450,16 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
     assignee_name: lead.assigned_to ? staffById.get(lead.assigned_to) : undefined,
     documents: loanDocumentsByLead.get(lead.id) || [],
   }));
+  const loanUpdatesResult = isSuperAdmin
+    ? await supabase.from("activity")
+      .select("id,agency_id,actor,action,created_at")
+      .like("action", "Updated home-loan request:%")
+      .order("created_at", { ascending: false })
+      .limit(8)
+    : null;
+  const recentLoanUpdates = loanUpdatesResult
+    ? supabaseData(loanUpdatesResult.data, loanUpdatesResult.error, "Unable to load recent loan updates")
+    : [];
   const agencyName = agencyDetails?.name;
   const pendingProperties = summary.pending;
   const pendingAgencies = summary.pending_agencies;
@@ -422,10 +467,14 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
   const navigation = [
     { label: "Overview", href: "#overview", icon: "overview" },
     ...(isSuperAdmin ? [{ label: "Agencies", href: "#agencies", icon: "agencies" }] : []),
+    ...(isSuperAdmin ? [{ label: "Agency approvals", href: "/dashboard/admin/agencies", icon: "activity" }] : []),
     { label: "Properties", href: "#inventory", icon: "properties", count: isSuperAdmin ? pendingProperties : undefined },
     ...(!isSuperAdmin ? [{ label: "Enquiries", href: "#leads", icon: "leads", count: activeLeads }] : []),
     ...(homeLoansEnabled ? [{ label: "Home loans", href: "#home-loans", icon: "loans" }] : []),
-    ...(isSuperAdmin ? [{ label: "Loans", href: "#loans", icon: "loans" }] : []),
+    ...(!isSuperAdmin && loansEnabled ? [{ label: "Loans", href: "/dashboard/loans", icon: "loans" }] : []),
+    ...(isSuperAdmin ? [{ label: "Loans", href: "/dashboard/admin/loans", icon: "loans" }] : []),
+    ...(isSuperAdmin ? [{ label: "Loan settings", href: "/dashboard/admin/loan-settings", icon: "settings" }] : []),
+    ...(isSuperAdmin ? [{ label: "Analytics", href: "#analytics", icon: "activity" }] : []),
     { label: "Team", href: "#team", icon: "team" },
     ...(toolsEnabled ? [
       { label: "Tools", href: "#tools", icon: "tools" },
@@ -435,7 +484,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
   ];
 
   return (
-    <WorkspaceShell theme={isSuperAdmin ? "platform" : "agency"} defaultView={isSuperAdmin ? "agencies" : "overview"} allowedViews={isSuperAdmin ? ["overview", "agencies", "inventory", "team", "loans", ...(homeLoansEnabled ? ["home-loans"] : []), ...(toolsEnabled ? ["tools", "services"] : [])] : ["overview", "agency-details", "inventory", "leads", ...(homeLoansEnabled ? ["home-loans"] : []), ...(toolsEnabled ? ["tools", "services"] : []), "team"]}>
+    <WorkspaceShell theme={isSuperAdmin ? "platform" : "agency"} defaultView={isSuperAdmin ? "agencies" : "overview"} allowedViews={isSuperAdmin ? ["overview", "agencies", "inventory", "team", "loans", "analytics", ...(homeLoansEnabled ? ["home-loans"] : []), ...(toolsEnabled ? ["tools", "services"] : [])] : ["overview", "agency-details", "inventory", "leads", ...(homeLoansEnabled ? ["home-loans"] : []), ...(toolsEnabled ? ["tools", "services"] : []), "team"]}>
       <aside className="dashboard-sidebar">
         <Link className="dashboard-sidebar-brand" href="/">
           <span className="dashboard-sidebar-brandmark">{isSuperAdmin ? "W" : agencyName?.trim().slice(0, 1).toUpperCase() || "W"}</span>
@@ -542,6 +591,14 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
         <article className="panel workspace-get-started"><div><p className="kicker">{isSuperAdmin ? "BUILT FOR YOUR PLATFORM" : "MAKE YOUR NEXT MOVE"}</p><h2>{isSuperAdmin ? "Every workspace. One clear view." : "More time for clients. Less time searching."}</h2><p className="muted">{isSuperAdmin ? "Use the navigation to manage agencies, properties, customer enquiries and account access separately." : "Add a listing, record a customer enquiry, or update your business profile. Each task has its own space."}</p></div><div><Link className="btn" href="/dashboard/properties/new">+ Create listing</Link><Link className="btn workspace-secondary" href="/dashboard/leads/new">+ Add enquiry</Link></div></article>
         </WorkspaceSection>
 
+        {isSuperAdmin && <WorkspaceSection id="analytics" className="dashboard-section">
+          <div className="dashboard-section-heading">
+            <div><p className="kicker">SITE PERFORMANCE</p><h2>Analytics</h2></div>
+            <p className="muted">Production page views and popular routes from Vercel Web Analytics.</p>
+          </div>
+          <AdminAnalyticsPanel />
+        </WorkspaceSection>}
+
         {!isSuperAdmin && agencyDetails && (
           <WorkspaceSection id="agency-details" className="dashboard-section agency-profile-section">
             <div className="dashboard-section-heading">
@@ -571,7 +628,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
               <div><p className="kicker">REVIEW REQUIRED</p><h3>Agency approval queue</h3><p className="muted">New registrations stay locked until approved.</p></div>
               {agencies.filter((agency) => agency.status === "pending").map((agency) => <div className="agency-approval-item" key={agency.id}>
                 <span><strong>{agency.name}</strong><small>{agency.contact_email || agency.phone || "Contact details not provided"}</small></span>
-                <div className="agency-approval-actions"><form action={setAgencyStatus}><input type="hidden" name="agency_id" value={agency.id} /><input type="hidden" name="status" value="active" /><SubmitButton className="btn small">Approve</SubmitButton></form><form action={setAgencyStatus}><input type="hidden" name="agency_id" value={agency.id} /><input type="hidden" name="status" value="suspended" /><SubmitButton className="btn small workspace-secondary">Decline</SubmitButton></form></div>
+                <div className="agency-approval-actions"><Link className="btn small" href="/dashboard/admin/agencies">Review application</Link></div>
               </div>)}
             </section>}
             <div className="panel dashboard-list">
@@ -616,20 +673,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
                     <div className="dashboard-row-end">
                       <span className={`badge ${agency.status}`}>{agency.status}</span>
                       <span className="muted">{agency.user_count} users · {agency.property_count} listings</span>
-                      <form action={setAgencyStatus}>
-                        <input type="hidden" name="agency_id" value={agency.id} />
-                        <input type="hidden" name="status" value={agency.status === "active" ? "suspended" : "active"} />
-                        <SubmitButton className="btn small" pendingLabel="Updating access…">
-                          {agency.status === "pending" ? "Approve agency" : agency.status === "suspended" ? "Reactivate agency" : "Suspend agency"}
-                        </SubmitButton>
-                      </form>
-                      <form action={setAgencyActive}>
-                        <input type="hidden" name="agency_id" value={agency.id} />
-                        <input type="hidden" name="is_active" value={agency.is_active ? "false" : "true"} />
-                        <SubmitButton className="btn small workspace-secondary">
-                          {agency.is_active ? "Disable agency" : "Enable agency"}
-                        </SubmitButton>
-                      </form>
+                      <Link className="btn small workspace-secondary" href="/dashboard/admin/agencies">Review access and RERA</Link>
                       <form action={deleteAgency}>
                         <input type="hidden" name="agency_id" value={agency.id} />
                         <ConfirmDeleteButton confirmMessage={`Permanently delete ${agency.name} and all its users, properties, enquiries, and activity? This cannot be undone.`}>
@@ -728,14 +772,19 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
             <div><p className="kicker">AGENCY FINANCING ACCESS</p><h2>Loans by agency</h2></div>
             <p className="muted">Enable Personal, Business, Home, LAP, and Education loans separately for each agency. Loan requests and uploaded documents stay agency-scoped and are visible to platform admins.</p>
           </div>
+          <section className="panel dashboard-section" aria-label="Recent agency loan updates">
+            <div className="dashboard-section-heading"><div><p className="kicker">AGENCY ACTIVITY</p><h3>Recent loan updates</h3></div><Link className="btn small workspace-secondary" href="/dashboard/home-loans">View loan pipeline</Link></div>
+            {recentLoanUpdates.length ? <div className="dashboard-list">{recentLoanUpdates.map((entry) => <article className="workspace-card" key={entry.id}><p><strong>{entry.action}</strong></p><p className="muted">{entry.agency_id ? agenciesById.get(entry.agency_id) || "Agency" : "Platform"} · {entry.actor} · {new Date(entry.created_at).toLocaleString("en-IN")}</p></article>)}</div> : <p className="muted">Agency loan changes will appear here.</p>}
+          </section>
           <div className="dashboard-list">
             {agencies.map((agency) => (
               <section className="panel" key={agency.id} aria-label={`${agency.name} loan products`}>
                 <div className="workspace-card-heading">
-                  <div><p className="kicker">{agency.status.toUpperCase()} AGENCY · {agencyLoanProducts.filter((item) => item.agency_id === agency.id && item.enabled).length}/{LOAN_PRODUCTS.length} ACTIVE</p><h3>{agency.name}</h3></div>
+                  <div><p className="kicker">{agency.status.toUpperCase()} AGENCY · {agencyLoanProducts.filter((item) => item.agency_id === agency.id && item.enabled).length}/{loanCatalog.length} ACTIVE</p><h3>{agency.name}</h3></div>
                 </div>
                 <div className="agency-feature-controls">
-                  {LOAN_PRODUCTS.map((product) => <AgencyLoanProductControl key={product.id} agencyId={agency.id} product={product} enabled={agencyLoanProducts.some((item) => item.agency_id === agency.id && item.loan_type === product.id && item.enabled)} />)}
+                  {loanCatalog.map((product) => <AgencyLoanProductControl key={product.id} agencyId={agency.id} product={product} enabled={agencyLoanProducts.some((item) => item.agency_id === agency.id && item.loan_type === product.id && item.enabled)} />)}
+                  {!loanCatalog.length && <p className="muted">Add an active loan type to configure agency access.</p>}
                 </div>
               </section>
             ))}

@@ -7,8 +7,8 @@ export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   const user = await currentUser();
-  if (!user || (user.role !== "super_admin" && (!user.agency_id || user.agency_status !== "active"))) {
-    return Response.json({ error: "Sign in to an active agency or admin account first." }, { status: 401 });
+  if (!user || (user.role !== "super_admin" && (!user.agency_id || user.agency_status !== "approved"))) {
+    return Response.json({ error: "Sign in to an approved agency or admin account first." }, { status: 401 });
   }
   if (request.headers.get("origin") !== new URL(request.url).origin) {
     return Response.json({ error: "Invalid request origin." }, { status: 403 });
@@ -38,8 +38,8 @@ export async function POST(request: Request) {
     if (!agencyId) return Response.json({ error: "Select an agency for this photo." }, { status: 400 });
     const { data: agency, error: agencyError } = await supabase.from("agencies").select("id,status").eq("id", agencyId).maybeSingle();
     if (agencyError) throw new Error(`Unable to verify the selected agency: ${agencyError.message}`);
-    if (!agency || (user.role !== "super_admin" && agency.status !== "active")) {
-      return Response.json({ error: "Select a valid active agency for this photo." }, { status: 400 });
+    if (!agency || (user.role !== "super_admin" && agency.status !== "approved")) {
+      return Response.json({ error: "Select a valid approved agency for this photo." }, { status: 400 });
     }
 
     const name = `${randomUUID()}.${extension}`;

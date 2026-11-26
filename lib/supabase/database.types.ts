@@ -10,7 +10,16 @@ export type Agency = {
   name: string;
   status: string;
   is_active: boolean;
-  features: { home_loans: boolean; tools: boolean };
+  features: { home_loans: boolean; loans: boolean; tools: boolean };
+  approved_by: string | null;
+  approved_at: string | null;
+  rejection_reason: string;
+  rera_agent_number: string;
+  rera_state: string;
+  rera_certificate_path: string;
+  rera_verified: boolean;
+  rera_verified_by: string | null;
+  rera_verified_at: string | null;
   logo_url: string;
   contact_name: string;
   contact_email: string;
@@ -92,7 +101,8 @@ export type Lead = {
 export type LoanLead = {
   id: string;
   agency_id: string;
-  loan_type: "personal_loan" | "business_loan" | "home_loan" | "lap" | "education_loan";
+  loan_type: string;
+  created_by: string | null;
   source_lead_id: string | null;
   property_id: string | null;
   customer_name: string;
@@ -100,10 +110,21 @@ export type LoanLead = {
   email: string;
   loan_amount: number;
   monthly_income: number;
+  tenure_months: number;
   employment_type: "salaried" | "self_employed" | "business_owner" | "other";
   city: string;
   preferred_bank: string;
-  status: "new" | "docs-collected" | "submitted" | "sanctioned" | "disbursed" | "rejected";
+  preferred_lender_id: string | null;
+  assigned_lender_id: string | null;
+  consent: boolean;
+  consent_at: string | null;
+  forwarded_at: string | null;
+  admin_remarks: string;
+  sanctioned_amount: number | null;
+  sanctioned_at: string | null;
+  disbursed_amount: number | null;
+  disbursed_at: string | null;
+  status: "draft" | "info_requested" | "submitted_to_admin" | "under_review" | "sanctioned" | "disbursed" | "rejected" | "cancelled";
   assigned_to: string | null;
   notes: string;
   created_at: string;
@@ -156,10 +177,21 @@ export type Upload = {
 
 export type AgencyLoanProduct = {
   agency_id: string;
-  loan_type: "personal_loan" | "business_loan" | "home_loan" | "lap" | "education_loan";
+  loan_type: string;
   enabled: boolean;
   updated_at: string;
 };
+
+export type LoanType = { id: string; code: string; name: string; sort_order: number; is_active: boolean; created_at: string; updated_at: string };
+export type Lender = { id: string; name: string; lender_type: "bank" | "nbfc" | "hfc"; is_active: boolean; created_at: string; updated_at: string };
+export type CommissionRule = {
+  id: string; loan_type_id: string; lender_id: string | null; agency_id: string | null;
+  basis: "percent" | "flat"; percent: number | null; flat_amount: number | null;
+  minimum_commission: number | null; maximum_commission: number | null;
+  agency_share_percent: number; effective_from: string; effective_to: string | null;
+  is_active: boolean; created_at: string; updated_at: string;
+};
+export type LoanLeadHistory = { id: string; loan_lead_id: string; agency_id: string; actor_id: string | null; actor_name: string; event_type: string; from_status: string | null; to_status: string | null; remark: string; created_at: string };
 
 export interface Database {
   public: {
@@ -171,11 +203,26 @@ export interface Database {
       loan_leads: Table<LoanLead>;
       loan_documents: Table<LoanDocument>;
       agency_loan_products: Table<AgencyLoanProduct>;
+      loan_types: Table<LoanType>;
+      lenders: Table<Lender>;
+      commission_rules: Table<CommissionRule>;
+      loan_lead_history: Table<LoanLeadHistory>;
       service_providers: Table<ServiceProvider>;
       activity: Table<Activity>;
       uploads: Table<Upload>;
     };
-    Views: Record<string, never>;
+    Views: {
+      loan_leads_admin_v: { Row: {
+        id: string; agency_id: string; agency_name: string; loan_type: string; loan_type_name: string | null;
+        preferred_lender_id: string | null; preferred_lender_name: string | null; assigned_lender_id: string | null; lender_name: string | null;
+        customer_name: string; phone: string; email: string; city: string; employment_type: string; monthly_income: number;
+        loan_amount: number; tenure_months: number; property_id: string | null; source_lead_id: string | null; preferred_bank: string;
+        notes: string; consent: boolean; consent_at: string | null; status: LoanLead["status"]; forwarded_at: string | null;
+        admin_remarks: string; sanctioned_amount: number | null; sanctioned_at: string | null; disbursed_amount: number | null;
+        disbursed_at: string | null; created_by: string | null; created_at: string; updated_at: string;
+      }; Relationships: [] };
+      loan_summary_by_agency_v: { Row: { agency_id: string; agency_name: string; total_leads: number; submitted_to_admin: number; under_review: number; info_requested: number; sanctioned: number; disbursed: number; rejected: number }; Relationships: [] };
+    };
     Functions: {
       realty_public_properties: {
         Args: { search_text?: string; listing_intent?: string; property_type?: string; minimum_price?: number; maximum_price?: number; minimum_beds?: number; page_number?: number; target_id?: string };

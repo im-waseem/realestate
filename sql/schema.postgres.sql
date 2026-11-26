@@ -6,8 +6,16 @@ BEGIN;
 CREATE TABLE IF NOT EXISTS public.agencies (
   id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
   name TEXT NOT NULL CHECK (length(btrim(name)) BETWEEN 2 AND 150),
-  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'active', 'suspended')),
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'suspended')),
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
   features JSONB NOT NULL DEFAULT '{"home_loans":false,"tools":false}'::jsonb,
+  approved_at TIMESTAMPTZ,
+  rejection_reason TEXT NOT NULL DEFAULT '',
+  rera_agent_number TEXT NOT NULL DEFAULT '',
+  rera_state TEXT NOT NULL DEFAULT '',
+  rera_certificate_path TEXT NOT NULL DEFAULT '',
+  rera_verified BOOLEAN NOT NULL DEFAULT FALSE,
+  rera_verified_at TIMESTAMPTZ,
   logo_url TEXT NOT NULL DEFAULT '' CHECK (length(logo_url) <= 1000),
   contact_name TEXT NOT NULL DEFAULT '' CHECK (length(contact_name) <= 100),
   contact_email TEXT NOT NULL DEFAULT '' CHECK (contact_email = '' OR (length(contact_email) <= 254 AND contact_email ~ '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$')),
@@ -48,6 +56,22 @@ CREATE TABLE IF NOT EXISTS public.profiles (
 ALTER TABLE public.agencies ADD COLUMN IF NOT EXISTS logo_url TEXT NOT NULL DEFAULT '';
 ALTER TABLE public.agencies ADD COLUMN IF NOT EXISTS features JSONB NOT NULL DEFAULT '{"home_loans":false,"tools":false}'::jsonb;
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE public.agencies
+  ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  ADD COLUMN IF NOT EXISTS approved_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS approved_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS rejection_reason TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS rera_agent_number TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS rera_state TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS rera_certificate_path TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS rera_verified BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS rera_verified_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS rera_verified_at TIMESTAMPTZ;
+ALTER TABLE public.agencies DROP CONSTRAINT IF EXISTS agencies_status_check;
+UPDATE public.agencies SET status = 'approved' WHERE status = 'active';
+ALTER TABLE public.agencies
+  ADD CONSTRAINT agencies_status_check
+  CHECK (status IN ('pending', 'approved', 'rejected', 'suspended'));
 
 CREATE TABLE IF NOT EXISTS public.properties (
   id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
@@ -84,6 +108,12 @@ CREATE TABLE IF NOT EXISTS public.properties (
   created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT properties_floor_range CHECK (total_floors IS NULL OR floor_number <= total_floors)
 );
+
+-- CREATE TABLE IF NOT EXISTS does not add these columns to older properties tables.
+ALTER TABLE public.properties
+  ADD COLUMN IF NOT EXISTS owner_name TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS owner_phone TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT '';
 
 CREATE TABLE IF NOT EXISTS public.leads (
   id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
@@ -398,7 +428,7 @@ SET search_path = ''
 AS $function$
   SELECT EXISTS (
     SELECT 1 FROM public.agencies AS a
-    WHERE a.id = target_agency_id AND a.status = 'active'
+    WHERE a.id = target_agency_id AND a.status = 'approved'
   )
 $function$;
 
@@ -478,6 +508,30 @@ CREATE TRIGGER agencies_guard_features
 BEFORE UPDATE OF features ON public.agencies
 FOR EACH ROW
 EXECUTE FUNCTION public.realty_guard_agency_features();
+
+CREATE OR REPLACE FUNCTION public.realty_guard_agency_approval_fields()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $function$
+BEGIN
+  IF NOT public.realty_is_super_admin() AND (
+    NEW.is_active IS DISTINCT FROM OLD.is_active
+    OR
+    NEW.approved_by IS DISTINCT FROM OLD.approved_by
+    OR NEW.approved_at IS DISTINCT FROM OLD.approved_at
+    OR NEW.rejection_reason IS DISTINCT FROM OLD.rejection_reason
+    OR NEW.rera_verified IS DISTINCT FROM OLD.rera_verified
+    OR NEW.rera_verified_by IS DISTINCT FROM OLD.rera_verified_by
+    OR NEW.rera_verified_at IS DISTINCT FROM OLD.rera_verified_at
+  ) THEN
+    RAISE EXCEPTION 'Only the platform admin can change agency approval or RERA verification';
+  END IF;
+  RETURN NEW;
+END
+$function$;
+
+DROP TRIGGER IF EXISTS agencies_guard_approval_fields ON public.agencies;
+CREATE TRIGGER agencies_guard_approval_fields
+BEFORE UPDATE OF is_active, approved_by, approved_at, rejection_reason, rera_verified, rera_verified_by, rera_verified_at
+ON public.agencies FOR EACH ROW EXECUTE FUNCTION public.realty_guard_agency_approval_fields();
 
 CREATE OR REPLACE FUNCTION public.realty_admin_delete_agency(target_agency_id TEXT)
 RETURNS VOID
@@ -997,6 +1051,11 @@ INSERT INTO storage.buckets(id, name, public)
 VALUES ('loan-documents', 'loan-documents', FALSE)
 ON CONFLICT (id) DO UPDATE SET public = FALSE;
 
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES ('agency-rera-documents', 'agency-rera-documents', FALSE, 5242880, ARRAY['application/pdf', 'image/jpeg'])
+ON CONFLICT (id) DO UPDATE
+SET public = FALSE, file_size_limit = 5242880, allowed_mime_types = ARRAY['application/pdf', 'image/jpeg'];
+
 DROP POLICY IF EXISTS property_photos_admin_delete ON storage.objects;
 CREATE POLICY property_photos_admin_delete ON storage.objects
 FOR DELETE TO authenticated
@@ -1008,7 +1067,7 @@ USING (
 REVOKE ALL ON TABLE public.agencies, public.profiles, public.properties, public.leads, public.loan_leads, public.loan_documents, public.service_providers, public.activity, public.uploads FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON TABLE public.server_rate_limits FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON TABLE public.agencies TO authenticated;
-GRANT INSERT, UPDATE (name, status, features, contact_name, contact_email, phone, whatsapp, website, registration_number, address, city, state, postal_code, service_areas, working_hours, description, lat, lng) ON TABLE public.agencies TO authenticated;
+GRANT INSERT, UPDATE (name, status, is_active, features, approved_by, approved_at, rejection_reason, rera_agent_number, rera_state, rera_certificate_path, rera_verified, rera_verified_by, rera_verified_at, contact_name, contact_email, phone, whatsapp, website, registration_number, address, city, state, postal_code, service_areas, working_hours, description, lat, lng) ON TABLE public.agencies TO authenticated;
 GRANT SELECT, INSERT, UPDATE (name, email, role, agency_id), DELETE ON TABLE public.profiles TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.properties TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.leads TO authenticated;
@@ -1088,7 +1147,7 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
  round(p.lat::numeric,2)::double precision,round(p.lng::numeric,2)::double precision,
  a.name,count(*) OVER()
  FROM public.properties p JOIN public.agencies a ON a.id=p.agency_id
- WHERE p.status='published' AND a.status='active'
+ WHERE p.status='published' AND a.status='approved'
  AND (target_id='' OR p.id=target_id)
  AND (listing_intent='' OR p.intent=listing_intent)
  AND (property_type='' OR p.type=property_type)
@@ -1107,11 +1166,11 @@ RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
  SELECT EXISTS (
  SELECT 1 FROM public.uploads u JOIN public.properties p ON p.agency_id=u.agency_id
  JOIN public.agencies a ON a.id=p.agency_id
- WHERE u.name=photo_name AND p.status='published' AND a.status='active'
+ WHERE u.name=photo_name AND p.status='published' AND a.status='approved'
  AND p.images::jsonb ? ('/media/'||photo_name)
  ) OR EXISTS (
  SELECT 1 FROM public.uploads u JOIN public.agencies a ON a.id=u.agency_id
- WHERE u.name=photo_name AND a.status='active' AND a.logo_url='/media/'||photo_name
+ WHERE u.name=photo_name AND a.status='approved' AND a.logo_url='/media/'||photo_name
  );
 $$;
 REVOKE ALL ON FUNCTION public.realty_public_photo_allowed(TEXT) FROM PUBLIC;
@@ -1124,7 +1183,7 @@ RETURNS TABLE (id TEXT, name TEXT, phone TEXT, whatsapp TEXT, logo_url TEXT, add
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
  SELECT a.id,a.name,a.phone,a.whatsapp,a.logo_url,a.address,a.lat,a.lng
  FROM public.agencies a
- WHERE a.id=target_agency_id AND a.status='active';
+ WHERE a.id=target_agency_id AND a.status='approved';
 $$;
 REVOKE ALL ON FUNCTION public.realty_public_agency(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.realty_public_agency(TEXT) TO anon,authenticated;
@@ -1147,7 +1206,7 @@ BEGIN
    RAISE EXCEPTION 'Please check your contact details and requirements';
  END IF;
  SELECT a.* INTO agency FROM public.agencies a
- WHERE a.id=target_agency_id AND a.status='active' FOR SHARE;
+ WHERE a.id=target_agency_id AND a.status='approved' FOR SHARE;
  IF NOT FOUND THEN RAISE EXCEPTION 'This agency is unavailable'; END IF;
  IF NOT public.realty_take_rate_limit('agency-qr-global',120,60)
  OR NOT public.realty_take_rate_limit(
@@ -1176,7 +1235,7 @@ BEGIN
  OR length(customer_email)>254 OR length(btrim(customer_message)) NOT BETWEEN 10 AND 2000 THEN
  RAISE EXCEPTION 'Please check your contact details and message'; END IF;
  SELECT p.* INTO listing FROM public.properties p JOIN public.agencies a ON a.id=p.agency_id
- WHERE p.id=target_id AND p.status='published' AND a.status='active' FOR SHARE OF p,a;
+ WHERE p.id=target_id AND p.status='published' AND a.status='approved' FOR SHARE OF p,a;
  IF NOT FOUND THEN RAISE EXCEPTION 'This listing is no longer available'; END IF;
  IF NOT public.realty_take_rate_limit('public-enquiry-global',60,60)
  OR NOT public.realty_take_rate_limit('public-enquiry:'||md5(lower(btrim(customer_email))),3,3600)
@@ -1216,6 +1275,360 @@ DROP TRIGGER IF EXISTS agency_update_timestamp ON public.agencies;
 CREATE TRIGGER agency_update_timestamp BEFORE UPDATE ON public.agencies
 FOR EACH ROW EXECUTE FUNCTION public.realty_stamp_agency_update();
 
+
+-- Configurable loan masters and platform-only commission rules.
+CREATE TABLE IF NOT EXISTS public.loan_types (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), code TEXT NOT NULL UNIQUE CHECK (code ~ '^[a-z][a-z0-9_]{1,49}$'),
+  name TEXT NOT NULL CHECK (length(btrim(name)) BETWEEN 2 AND 100), sort_order INTEGER NOT NULL DEFAULT 0,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE, created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+INSERT INTO public.loan_types (code,name,sort_order) VALUES
+  ('personal_loan','Personal Loan',10),('business_loan','Business Loan',20),('home_loan','Home Loan',30),
+  ('lap','Loan Against Property (LAP)',40),('education_loan','Education Loan',50) ON CONFLICT (code) DO NOTHING;
+CREATE TABLE IF NOT EXISTS public.lenders (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), name TEXT NOT NULL CHECK (length(btrim(name)) BETWEEN 2 AND 150),
+  lender_type TEXT NOT NULL CHECK (lender_type IN ('bank','nbfc','hfc')), is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS lenders_name_type_unique ON public.lenders (lower(name),lender_type);
+ALTER TABLE public.loan_leads ADD COLUMN IF NOT EXISTS loan_type TEXT NOT NULL DEFAULT 'home_loan';
+CREATE TABLE IF NOT EXISTS public.agency_loan_products (
+  agency_id TEXT NOT NULL REFERENCES public.agencies(id) ON DELETE CASCADE,
+  loan_type TEXT NOT NULL REFERENCES public.loan_types(code) ON UPDATE CASCADE ON DELETE RESTRICT,
+  enabled BOOLEAN NOT NULL DEFAULT FALSE, updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (agency_id,loan_type)
+);
+INSERT INTO public.agency_loan_products (agency_id,loan_type,enabled)
+SELECT a.id,lt.code,lt.code='home_loan' AND COALESCE((a.features->>'home_loans')::boolean,FALSE)
+FROM public.agencies a CROSS JOIN public.loan_types lt ON CONFLICT (agency_id,loan_type) DO NOTHING;
+DO $loan_type_fks$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='public.loan_leads'::regclass AND conname='loan_leads_loan_type_fkey') THEN
+    ALTER TABLE public.loan_leads ADD CONSTRAINT loan_leads_loan_type_fkey FOREIGN KEY (loan_type)
+      REFERENCES public.loan_types(code) ON UPDATE CASCADE ON DELETE RESTRICT;
+  END IF;
+END
+$loan_type_fks$;
+CREATE TABLE IF NOT EXISTS public.commission_rules (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), loan_type_id UUID NOT NULL REFERENCES public.loan_types(id) ON DELETE RESTRICT,
+  lender_id UUID REFERENCES public.lenders(id) ON DELETE RESTRICT, agency_id TEXT REFERENCES public.agencies(id) ON DELETE CASCADE,
+  basis TEXT NOT NULL CHECK (basis IN ('percent','flat')), percent NUMERIC(7,4), flat_amount NUMERIC(14,2),
+  minimum_commission NUMERIC(14,2), maximum_commission NUMERIC(14,2),
+  agency_share_percent NUMERIC(7,4) NOT NULL DEFAULT 0 CHECK (agency_share_percent BETWEEN 0 AND 100),
+  effective_from DATE NOT NULL DEFAULT CURRENT_DATE, effective_to DATE, is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT commission_rules_basis_values CHECK (
+    (basis='percent' AND percent IS NOT NULL AND percent BETWEEN 0 AND 100 AND flat_amount IS NULL)
+    OR (basis='flat' AND flat_amount IS NOT NULL AND flat_amount>=0 AND percent IS NULL)),
+  CONSTRAINT commission_rules_min_max CHECK ((minimum_commission IS NULL OR minimum_commission>=0)
+    AND (maximum_commission IS NULL OR maximum_commission>=0)
+    AND (minimum_commission IS NULL OR maximum_commission IS NULL OR minimum_commission<=maximum_commission)),
+  CONSTRAINT commission_rules_effective_dates CHECK (effective_to IS NULL OR effective_to>=effective_from)
+);
+CREATE INDEX IF NOT EXISTS commission_rules_match_idx ON public.commission_rules (loan_type_id,lender_id,agency_id,is_active,effective_from DESC);
+CREATE OR REPLACE FUNCTION public.realty_seed_agency_loan_products()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $function$
+BEGIN
+  INSERT INTO public.agency_loan_products (agency_id,loan_type,enabled)
+  SELECT NEW.id,lt.code,(lt.code='home_loan' AND COALESCE((NEW.features->>'home_loans')::boolean,FALSE))
+  FROM public.loan_types lt ON CONFLICT (agency_id,loan_type) DO NOTHING; RETURN NEW;
+END $function$;
+DROP TRIGGER IF EXISTS agencies_seed_loan_products ON public.agencies;
+CREATE TRIGGER agencies_seed_loan_products AFTER INSERT ON public.agencies FOR EACH ROW EXECUTE FUNCTION public.realty_seed_agency_loan_products();
+CREATE OR REPLACE FUNCTION public.realty_seed_loan_type_for_agencies()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $function$
+BEGIN
+  INSERT INTO public.agency_loan_products (agency_id,loan_type,enabled)
+  SELECT a.id,NEW.code,FALSE FROM public.agencies a ON CONFLICT (agency_id,loan_type) DO NOTHING; RETURN NEW;
+END $function$;
+DROP TRIGGER IF EXISTS loan_types_seed_agencies ON public.loan_types;
+CREATE TRIGGER loan_types_seed_agencies AFTER INSERT ON public.loan_types FOR EACH ROW EXECUTE FUNCTION public.realty_seed_loan_type_for_agencies();
+CREATE OR REPLACE FUNCTION public.realty_guard_enabled_loan_product()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $function$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM public.agency_loan_products p JOIN public.loan_types lt ON lt.code=p.loan_type
+    WHERE p.agency_id=NEW.agency_id AND p.loan_type=NEW.loan_type AND p.enabled AND lt.is_active) THEN
+    RAISE EXCEPTION 'This loan type is not enabled for the selected agency.' USING ERRCODE='23514';
+  END IF; RETURN NEW;
+END $function$;
+DROP TRIGGER IF EXISTS loan_leads_require_enabled_product ON public.loan_leads;
+CREATE TRIGGER loan_leads_require_enabled_product BEFORE INSERT OR UPDATE OF agency_id,loan_type ON public.loan_leads
+FOR EACH ROW EXECUTE FUNCTION public.realty_guard_enabled_loan_product();
+DROP TRIGGER IF EXISTS agency_loan_products_updated_at ON public.agency_loan_products;
+CREATE TRIGGER agency_loan_products_updated_at BEFORE UPDATE ON public.agency_loan_products FOR EACH ROW EXECUTE FUNCTION public.realty_stamp_loan_updated_at();
+DROP TRIGGER IF EXISTS loan_types_updated_at ON public.loan_types;
+CREATE TRIGGER loan_types_updated_at BEFORE UPDATE ON public.loan_types FOR EACH ROW EXECUTE FUNCTION public.realty_stamp_loan_updated_at();
+DROP TRIGGER IF EXISTS lenders_updated_at ON public.lenders;
+CREATE TRIGGER lenders_updated_at BEFORE UPDATE ON public.lenders FOR EACH ROW EXECUTE FUNCTION public.realty_stamp_loan_updated_at();
+DROP TRIGGER IF EXISTS commission_rules_updated_at ON public.commission_rules;
+CREATE TRIGGER commission_rules_updated_at BEFORE UPDATE ON public.commission_rules FOR EACH ROW EXECUTE FUNCTION public.realty_stamp_loan_updated_at();
+ALTER TABLE public.agency_loan_products ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.loan_types ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.lenders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.commission_rules ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS agency_loan_products_read_workspace ON public.agency_loan_products;
+CREATE POLICY agency_loan_products_read_workspace ON public.agency_loan_products FOR SELECT TO authenticated
+USING (public.realty_is_super_admin() OR agency_id=(SELECT public.realty_current_agency_id()));
+DROP POLICY IF EXISTS agency_loan_products_manage_admin ON public.agency_loan_products;
+CREATE POLICY agency_loan_products_manage_admin ON public.agency_loan_products FOR ALL TO authenticated USING (public.realty_is_super_admin()) WITH CHECK (public.realty_is_super_admin());
+DROP POLICY IF EXISTS loan_types_read_active ON public.loan_types;
+CREATE POLICY loan_types_read_active ON public.loan_types FOR SELECT TO authenticated USING (is_active OR public.realty_is_super_admin());
+DROP POLICY IF EXISTS loan_types_manage_admin ON public.loan_types;
+CREATE POLICY loan_types_manage_admin ON public.loan_types FOR ALL TO authenticated USING (public.realty_is_super_admin()) WITH CHECK (public.realty_is_super_admin());
+DROP POLICY IF EXISTS lenders_read_active ON public.lenders;
+CREATE POLICY lenders_read_active ON public.lenders FOR SELECT TO authenticated USING (is_active OR public.realty_is_super_admin());
+DROP POLICY IF EXISTS lenders_manage_admin ON public.lenders;
+CREATE POLICY lenders_manage_admin ON public.lenders FOR ALL TO authenticated USING (public.realty_is_super_admin()) WITH CHECK (public.realty_is_super_admin());
+DROP POLICY IF EXISTS commission_rules_manage_admin ON public.commission_rules;
+CREATE POLICY commission_rules_manage_admin ON public.commission_rules FOR ALL TO authenticated USING (public.realty_is_super_admin()) WITH CHECK (public.realty_is_super_admin());
+REVOKE ALL ON TABLE public.agency_loan_products,public.loan_types,public.lenders,public.commission_rules FROM PUBLIC,anon,authenticated;
+GRANT SELECT,INSERT,UPDATE,DELETE ON TABLE public.agency_loan_products,public.loan_types,public.lenders,public.commission_rules TO authenticated;
+GRANT INSERT (loan_type) ON TABLE public.loan_leads TO authenticated;
+
+-- Current loan application workflow, also available as migration 20261203_loan_leads.sql.
+-- Add a separate agency feature switch while preserving the existing home_loans
+-- feature used by the legacy pipeline.
+ALTER TABLE public.agencies DROP CONSTRAINT IF EXISTS agencies_features_shape;
+DROP TRIGGER IF EXISTS agencies_guard_features ON public.agencies;
+UPDATE public.agencies
+SET features = jsonb_set(COALESCE(features, '{}'::jsonb), '{loans}', COALESCE(features->'loans', 'false'::jsonb), TRUE);
+ALTER TABLE public.agencies
+  ALTER COLUMN features SET DEFAULT '{"home_loans":false,"loans":false,"tools":false}'::jsonb,
+  ADD CONSTRAINT agencies_features_shape CHECK (
+    jsonb_typeof(features) = 'object'
+    AND jsonb_typeof(features->'home_loans') = 'boolean'
+    AND jsonb_typeof(features->'loans') = 'boolean'
+    AND jsonb_typeof(features->'tools') = 'boolean'
+    AND features - 'home_loans' - 'loans' - 'tools' = '{}'::jsonb
+  );
+CREATE OR REPLACE FUNCTION public.realty_agency_feature_enabled(target_agency_id TEXT, feature_key TEXT)
+RETURNS BOOLEAN LANGUAGE SQL STABLE SECURITY DEFINER SET search_path = '' AS $function$
+  SELECT COALESCE((SELECT (a.features->>feature_key)::BOOLEAN FROM public.agencies AS a
+    WHERE a.id = target_agency_id AND feature_key IN ('home_loans', 'loans', 'tools')
+      AND (target_agency_id = (SELECT public.realty_current_agency_id()) OR public.realty_is_super_admin())), FALSE)
+$function$;
+CREATE OR REPLACE FUNCTION public.realty_guard_agency_features()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $function$
+BEGIN
+  IF NEW.features IS DISTINCT FROM OLD.features AND NOT public.realty_is_super_admin() THEN
+    RAISE EXCEPTION 'Only the main admin can change agency features';
+  END IF;
+  RETURN NEW;
+END
+$function$;
+CREATE TRIGGER agencies_guard_features BEFORE UPDATE OF features ON public.agencies
+FOR EACH ROW EXECUTE FUNCTION public.realty_guard_agency_features();
+
+ALTER TABLE public.loan_leads
+  ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS tenure_months INTEGER NOT NULL DEFAULT 0 CHECK (tenure_months BETWEEN 0 AND 600),
+  ADD COLUMN IF NOT EXISTS consent BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS consent_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS preferred_lender_id UUID REFERENCES public.lenders(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS assigned_lender_id UUID REFERENCES public.lenders(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS forwarded_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS admin_remarks TEXT NOT NULL DEFAULT '',
+  ADD COLUMN IF NOT EXISTS sanctioned_amount NUMERIC(14,2),
+  ADD COLUMN IF NOT EXISTS sanctioned_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS disbursed_amount NUMERIC(14,2),
+  ADD COLUMN IF NOT EXISTS disbursed_at TIMESTAMPTZ;
+
+ALTER TABLE public.loan_leads DROP CONSTRAINT IF EXISTS loan_leads_status_check;
+UPDATE public.loan_leads SET
+  status = CASE status
+    WHEN 'new' THEN 'submitted_to_admin'
+    WHEN 'docs-collected' THEN 'submitted_to_admin'
+    WHEN 'submitted' THEN 'submitted_to_admin'
+    ELSE status
+  END,
+  forwarded_at = CASE
+    WHEN status IN ('new', 'docs-collected', 'submitted') THEN COALESCE(updated_at, created_at)
+    ELSE forwarded_at
+  END;
+ALTER TABLE public.loan_leads
+  ALTER COLUMN status SET DEFAULT 'draft',
+  ADD CONSTRAINT loan_leads_status_check CHECK (status IN (
+    'draft', 'info_requested', 'submitted_to_admin', 'under_review',
+    'sanctioned', 'disbursed', 'rejected', 'cancelled'
+  )),
+  ADD CONSTRAINT loan_leads_sanctioned_amount_check CHECK (sanctioned_amount IS NULL OR sanctioned_amount >= 0),
+  ADD CONSTRAINT loan_leads_disbursed_amount_check CHECK (disbursed_amount IS NULL OR disbursed_amount >= 0);
+
+CREATE TABLE IF NOT EXISTS public.loan_lead_history (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  loan_lead_id UUID NOT NULL REFERENCES public.loan_leads(id) ON DELETE CASCADE,
+  agency_id TEXT NOT NULL REFERENCES public.agencies(id) ON DELETE CASCADE,
+  actor_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  actor_name TEXT NOT NULL,
+  event_type TEXT NOT NULL CHECK (event_type IN ('created', 'updated', 'submitted', 'status_changed', 'document_uploaded')),
+  from_status TEXT,
+  to_status TEXT,
+  remark TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS loan_lead_history_timeline_idx ON public.loan_lead_history (loan_lead_id, created_at DESC);
+
+CREATE OR REPLACE FUNCTION public.realty_guard_loan_lead_workflow()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $function$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    IF public.realty_current_role() = 'super_admin' THEN RETURN NEW; END IF;
+    IF NEW.agency_id IS DISTINCT FROM (SELECT public.realty_current_agency_id())
+      OR NEW.created_by IS DISTINCT FROM (SELECT auth.uid())
+      OR NEW.status <> 'draft'
+      OR NEW.admin_remarks <> ''
+      OR NEW.assigned_lender_id IS NOT NULL
+      OR NEW.sanctioned_amount IS NOT NULL OR NEW.sanctioned_at IS NOT NULL
+      OR NEW.disbursed_amount IS NOT NULL OR NEW.disbursed_at IS NOT NULL
+      OR NEW.forwarded_at IS NOT NULL THEN
+      RAISE EXCEPTION 'Agency loan leads must be created from the signed-in agency session';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  IF public.realty_current_role() = 'super_admin' THEN RETURN NEW; END IF;
+  IF NEW.agency_id IS DISTINCT FROM OLD.agency_id
+    OR NEW.created_by IS DISTINCT FROM OLD.created_by
+    OR NEW.admin_remarks IS DISTINCT FROM OLD.admin_remarks
+    OR NEW.assigned_lender_id IS DISTINCT FROM OLD.assigned_lender_id
+    OR NEW.sanctioned_amount IS DISTINCT FROM OLD.sanctioned_amount
+    OR NEW.sanctioned_at IS DISTINCT FROM OLD.sanctioned_at
+    OR NEW.disbursed_amount IS DISTINCT FROM OLD.disbursed_amount
+    OR NEW.disbursed_at IS DISTINCT FROM OLD.disbursed_at
+    OR NEW.forwarded_at IS DISTINCT FROM OLD.forwarded_at THEN
+    RAISE EXCEPTION 'Only the platform admin can change admin loan fields';
+  END IF;
+  IF OLD.status NOT IN ('draft', 'info_requested') THEN
+    RAISE EXCEPTION 'This loan request is locked after submission';
+  END IF;
+  IF NEW.status NOT IN (OLD.status, 'submitted_to_admin') THEN
+    RAISE EXCEPTION 'Agency users cannot set this loan status';
+  END IF;
+  IF NEW.status = 'submitted_to_admin' AND OLD.status <> 'submitted_to_admin' THEN
+    IF NOT NEW.consent OR NEW.customer_name = '' OR NEW.phone = '' OR NEW.city = ''
+      OR NEW.loan_amount <= 0 OR NEW.monthly_income <= 0 OR NEW.tenure_months <= 0 THEN
+      RAISE EXCEPTION 'Consent and all required loan details are required before submission';
+    END IF;
+    NEW.forwarded_at := pg_catalog.now();
+    NEW.consent_at := pg_catalog.now();
+  END IF;
+  RETURN NEW;
+END
+$function$;
+DROP TRIGGER IF EXISTS loan_leads_guard_workflow ON public.loan_leads;
+CREATE TRIGGER loan_leads_guard_workflow BEFORE INSERT OR UPDATE ON public.loan_leads
+FOR EACH ROW EXECUTE FUNCTION public.realty_guard_loan_lead_workflow();
+
+-- Replace the prior broad policies with agency-scoped, feature-gated access.
+DROP POLICY IF EXISTS loan_leads_read_workspace ON public.loan_leads;
+CREATE POLICY loan_leads_read_workspace ON public.loan_leads FOR SELECT TO authenticated
+USING (public.realty_is_super_admin() OR (
+  agency_id = (SELECT public.realty_current_agency_id())
+  AND public.realty_current_role() IN ('agency_admin', 'agent')
+  AND public.realty_agency_is_active(agency_id)
+  AND public.realty_agency_feature_enabled(agency_id, 'loans')
+));
+DROP POLICY IF EXISTS loan_leads_insert_workspace ON public.loan_leads;
+CREATE POLICY loan_leads_insert_workspace ON public.loan_leads FOR INSERT TO authenticated
+WITH CHECK (public.realty_is_super_admin() OR (
+  agency_id = (SELECT public.realty_current_agency_id())
+  AND created_by = (SELECT auth.uid())
+  AND public.realty_current_role() IN ('agency_admin', 'agent')
+  AND public.realty_agency_is_active(agency_id)
+  AND public.realty_agency_feature_enabled(agency_id, 'loans')
+));
+DROP POLICY IF EXISTS loan_leads_update_workspace ON public.loan_leads;
+CREATE POLICY loan_leads_update_workspace ON public.loan_leads FOR UPDATE TO authenticated
+USING (public.realty_is_super_admin() OR (
+  agency_id = (SELECT public.realty_current_agency_id())
+  AND public.realty_current_role() IN ('agency_admin', 'agent')
+  AND public.realty_agency_is_active(agency_id)
+  AND public.realty_agency_feature_enabled(agency_id, 'loans')
+  AND status IN ('draft', 'info_requested')
+))
+WITH CHECK (public.realty_is_super_admin() OR (
+  agency_id = (SELECT public.realty_current_agency_id())
+  AND public.realty_current_role() IN ('agency_admin', 'agent')
+  AND public.realty_agency_is_active(agency_id)
+  AND public.realty_agency_feature_enabled(agency_id, 'loans')
+));
+
+ALTER TABLE public.loan_lead_history ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS loan_lead_history_read_workspace ON public.loan_lead_history;
+CREATE POLICY loan_lead_history_read_workspace ON public.loan_lead_history FOR SELECT TO authenticated
+USING (public.realty_is_super_admin() OR (
+  agency_id = (SELECT public.realty_current_agency_id())
+  AND public.realty_agency_is_active(agency_id)
+  AND public.realty_agency_feature_enabled(agency_id, 'loans')
+));
+
+-- Existing documents are shared by both loan workflows; use the new feature flag
+-- for the loan portal while retaining compatibility with the old home-loans tool.
+DROP POLICY IF EXISTS loan_documents_read_workspace ON public.loan_documents;
+CREATE POLICY loan_documents_read_workspace ON public.loan_documents FOR SELECT TO authenticated
+USING (public.realty_is_super_admin() OR (
+  agency_id = (SELECT public.realty_current_agency_id())
+  AND public.realty_current_role() IN ('agency_admin', 'agent')
+  AND public.realty_agency_is_active(agency_id)
+  AND (public.realty_agency_feature_enabled(agency_id, 'loans') OR public.realty_agency_feature_enabled(agency_id, 'home_loans'))
+));
+DROP POLICY IF EXISTS loan_documents_insert_workspace ON public.loan_documents;
+CREATE POLICY loan_documents_insert_workspace ON public.loan_documents FOR INSERT TO authenticated
+WITH CHECK (public.realty_is_super_admin() OR (
+  agency_id = (SELECT public.realty_current_agency_id())
+  AND public.realty_current_role() IN ('agency_admin', 'agent')
+  AND public.realty_agency_is_active(agency_id)
+  AND (public.realty_agency_feature_enabled(agency_id, 'loans') OR public.realty_agency_feature_enabled(agency_id, 'home_loans'))
+  AND EXISTS (SELECT 1 FROM public.loan_leads AS l WHERE l.id = lead_id AND l.agency_id = loan_documents.agency_id
+    AND ((public.realty_agency_feature_enabled(agency_id, 'loans') AND l.status IN ('draft', 'info_requested'))
+      OR public.realty_agency_feature_enabled(agency_id, 'home_loans')))
+));
+
+CREATE OR REPLACE VIEW public.loan_leads_admin_v WITH (security_invoker = true) AS
+SELECT l.id, l.agency_id, a.name AS agency_name, l.loan_type, lt.name AS loan_type_name,
+       l.preferred_lender_id, pl.name AS preferred_lender_name,
+       l.assigned_lender_id, al.name AS lender_name,
+       l.customer_name, l.phone, l.email, l.city, l.employment_type,
+       l.monthly_income, l.loan_amount, l.tenure_months, l.property_id, l.source_lead_id,
+       l.preferred_bank, l.notes, l.consent, l.consent_at, l.status, l.forwarded_at,
+       l.admin_remarks, l.sanctioned_amount, l.sanctioned_at, l.disbursed_amount,
+       l.disbursed_at, l.created_by, l.created_at, l.updated_at
+FROM public.loan_leads AS l
+JOIN public.agencies AS a ON a.id = l.agency_id
+LEFT JOIN public.loan_types AS lt ON lt.code = l.loan_type
+LEFT JOIN public.lenders AS pl ON pl.id = l.preferred_lender_id
+LEFT JOIN public.lenders AS al ON al.id = l.assigned_lender_id
+WHERE public.realty_is_super_admin();
+
+CREATE OR REPLACE VIEW public.loan_summary_by_agency_v WITH (security_invoker = true) AS
+SELECT a.id AS agency_id, a.name AS agency_name,
+       count(l.id)::BIGINT AS total_leads,
+       count(l.id) FILTER (WHERE l.status = 'submitted_to_admin')::BIGINT AS submitted_to_admin,
+       count(l.id) FILTER (WHERE l.status = 'under_review')::BIGINT AS under_review,
+       count(l.id) FILTER (WHERE l.status = 'info_requested')::BIGINT AS info_requested,
+       count(l.id) FILTER (WHERE l.status = 'sanctioned')::BIGINT AS sanctioned,
+       count(l.id) FILTER (WHERE l.status = 'disbursed')::BIGINT AS disbursed,
+       count(l.id) FILTER (WHERE l.status = 'rejected')::BIGINT AS rejected
+FROM public.agencies AS a LEFT JOIN public.loan_leads AS l ON l.agency_id = a.id
+WHERE public.realty_is_super_admin()
+GROUP BY a.id, a.name;
+
+REVOKE ALL ON public.loan_leads_admin_v, public.loan_summary_by_agency_v FROM PUBLIC, anon;
+GRANT SELECT ON public.loan_leads_admin_v, public.loan_summary_by_agency_v TO authenticated;
+REVOKE INSERT, UPDATE, DELETE ON TABLE public.loan_leads FROM authenticated;
+GRANT SELECT ON TABLE public.loan_leads, public.loan_lead_history TO authenticated;
+GRANT INSERT (agency_id, created_by, loan_type, customer_name, phone, email, city, employment_type,
+              monthly_income, loan_amount, tenure_months, property_id, source_lead_id,
+              preferred_lender_id, preferred_bank, notes, consent, status)
+  ON TABLE public.loan_leads TO authenticated;
+GRANT UPDATE (loan_type, customer_name, phone, email, city, employment_type, monthly_income,
+              loan_amount, tenure_months, property_id, source_lead_id, preferred_lender_id,
+              preferred_bank, notes, consent, consent_at, status, admin_remarks,
+              assigned_lender_id, sanctioned_amount, sanctioned_at, disbursed_amount,
+              disbursed_at, forwarded_at, updated_at)
+  ON TABLE public.loan_leads TO authenticated;
+GRANT SELECT ON TABLE public.loan_types, public.lenders TO authenticated;
 
 NOTIFY pgrst, 'reload schema';
 COMMIT;

@@ -25,8 +25,8 @@ BEGIN
   END IF;
 
   INSERT INTO public.agencies(id, name, status, phone, address)
-  VALUES (target_agency_id, target_agency_name, 'active', '+91 90000 10001', 'Demo testing office')
-  ON CONFLICT (id) DO UPDATE SET status = 'active';
+  VALUES (target_agency_id, target_agency_name, 'approved', '+91 90000 10001', 'Demo testing office')
+  ON CONFLICT (id) DO UPDATE SET status = 'approved';
 
   SELECT id,
          COALESCE(NULLIF(raw_user_meta_data ->> 'full_name', ''),
