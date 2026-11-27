@@ -37,7 +37,7 @@ export default async function NewHomeLoanPage({
     if (!sourceLead) notFound();
   }
 
-  const [propertiesResult, profilesResult, agenciesResult, loanProductsResult, loanTypesResult, lendersResult] = await Promise.all([
+  const [propertiesResult, profilesResult, agenciesResult, loanProductsResult, loanTypesResult, lendersResult, fieldSettingsResult] = await Promise.all([
     (() => {
       const propertiesQuery = supabase.from("properties").select("id,title,city,agency_id").order("title");
       return isAdmin ? propertiesQuery : propertiesQuery.eq("agency_id", user.agency_id || "");
@@ -47,6 +47,7 @@ export default async function NewHomeLoanPage({
     supabase.from("agency_loan_products").select("agency_id,loan_type,enabled").eq("enabled", true),
     supabase.from("loan_types").select("code,name,is_active").eq("is_active", true).order("sort_order"),
     supabase.from("lenders").select("name,lender_type").eq("is_active", true).order("name"),
+    supabase.from("agency_loan_field_settings").select("agency_id,enabled_fields"),
   ]);
   const properties = supabaseData(propertiesResult.data, propertiesResult.error, "Unable to load properties");
   const profiles = supabaseData(profilesResult.data, profilesResult.error, "Unable to load agency assignees");
@@ -54,6 +55,7 @@ export default async function NewHomeLoanPage({
   const loanProducts = supabaseData(loanProductsResult.data, loanProductsResult.error, "Unable to load enabled loan products. Apply sql/migrations/20261130_agency_loan_products.sql") as { agency_id: string; loan_type: LoanProductType; enabled: boolean }[];
   const loanTypes = supabaseData(loanTypesResult.data, loanTypesResult.error, "Unable to load loan types. Apply sql/migrations/20261202_loan_masters.sql") as { code: string; name: string; is_active: boolean }[];
   const lenders = supabaseData(lendersResult.data, lendersResult.error, "Unable to load lenders. Apply sql/migrations/20261202_loan_masters.sql") as { name: string; lender_type: string }[];
+  const fieldSettings = supabaseData(fieldSettingsResult.data, fieldSettingsResult.error, "Unable to load agency loan field settings") as { agency_id: string; enabled_fields: string[] }[];
   const loanTypeName = new Map(loanTypes.map((item) => [item.code, item.name]));
   const enabledProductsByAgency = Object.fromEntries((isAdmin ? agencies : [{ id: user.agency_id || "" }]).map((agency) => [agency.id, loanProducts.filter((row) => row.agency_id === agency.id && loanTypeName.has(row.loan_type)).map((row) => ({ id: row.loan_type, label: loanTypeName.get(row.loan_type) || row.loan_type }))])) as Record<string, { id: LoanProductType; label: string }[]>;
 
@@ -84,6 +86,7 @@ export default async function NewHomeLoanPage({
           sourceLead={sourceLead}
           enabledProductsByAgency={enabledProductsByAgency}
           lenders={lenders}
+          enabledFieldsByAgency={Object.fromEntries(fieldSettings.map((item) => [item.agency_id, item.enabled_fields]))}
         />
       </main>
     </>

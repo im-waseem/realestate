@@ -117,6 +117,13 @@ export type LoanLead = {
   source_lead_id: string | null;
   property_id: string | null;
   customer_name: string;
+  first_name: string;
+  middle_name: string;
+  mother_name: string;
+  father_name: string;
+  date_of_birth: string | null;
+  pincode: string;
+  applicant_address: string;
   phone: string;
   email: string;
   loan_amount: number;

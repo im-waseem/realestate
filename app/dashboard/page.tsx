@@ -10,7 +10,7 @@ import { redirect } from "next/navigation";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { currentUser } from "@/lib/auth";
-import type { Lead, LoanDocument, LoanLead, Property, ServiceProvider, User } from "@/lib/db";
+import type { Lead, LoanLead, Property, ServiceProvider, User } from "@/lib/db";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { supabaseData } from "@/lib/supabase/results";
 import { sevenDaysAgoIso } from "@/lib/dates";
@@ -431,24 +431,11 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
   const loanLeads = loanLeadResult
     ? supabaseData(loanLeadResult.data, loanLeadResult.error, "Unable to load home-loan leads") as LoanLead[]
     : [];
-  const loanDocumentResult = loanLeads.length
-    ? await supabase.from("loan_documents").select("*").in("lead_id", loanLeads.map((lead) => lead.id)).order("created_at", { ascending: false })
-    : null;
-  const loanDocuments = loanDocumentResult
-    ? supabaseData(loanDocumentResult.data, loanDocumentResult.error, "Unable to load private loan documents") as LoanDocument[]
-    : [];
-  const loanDocumentsByLead = new Map<string, LoanDocument[]>();
-  for (const document of loanDocuments) {
-    const current = loanDocumentsByLead.get(document.lead_id) || [];
-    current.push(document);
-    loanDocumentsByLead.set(document.lead_id, current);
-  }
   const homeLoanRows = loanLeads.map((lead) => ({
     ...lead,
     agency_name: agenciesById.get(lead.agency_id) || agencyDetails?.name,
     property_title: lead.property_id ? propertyTitleById.get(lead.property_id) : undefined,
     assignee_name: lead.assigned_to ? staffById.get(lead.assigned_to) : undefined,
-    documents: loanDocumentsByLead.get(lead.id) || [],
   }));
   const loanUpdatesResult = isSuperAdmin
     ? await supabase.from("activity")
@@ -762,7 +749,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
               <p className="kicker">FINANCING WORKSPACE</p>
               <h2>Loans pipeline</h2>
             </div>
-            <p className="muted">{isSuperAdmin ? "Review and manage requests across every agency." : "Track each request, follow up on documents, and keep applications moving."}</p>
+            <p className="muted">{isSuperAdmin ? "Review and manage requests across every agency." : "Track each request and keep applications moving."}</p>
           </div>
           <HomeLoansBoard leads={homeLoanRows} assignees={staff.map((member) => ({ id: member.id, name: member.name, agency_id: member.agency_id }))} isAdmin={isSuperAdmin} />
         </WorkspaceSection>}
@@ -770,10 +757,10 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
         {isSuperAdmin && <WorkspaceSection id="loans" className="dashboard-section">
           <div className="dashboard-section-heading">
             <div><p className="kicker">AGENCY FINANCING ACCESS</p><h2>Loans by agency</h2></div>
-            <p className="muted">Enable Personal, Business, Home, LAP, and Education loans separately for each agency. Loan requests and uploaded documents stay agency-scoped and are visible to platform admins.</p>
+            <p className="muted">Enable Personal, Business, Home, LAP, and Education loans separately for each agency. Saved applicant requests appear in platform admin review.</p>
           </div>
           <section className="panel dashboard-section" aria-label="Recent agency loan updates">
-            <div className="dashboard-section-heading"><div><p className="kicker">AGENCY ACTIVITY</p><h3>Recent loan updates</h3></div><Link className="btn small workspace-secondary" href="/dashboard/home-loans">View loan pipeline</Link></div>
+            <div className="dashboard-section-heading"><div><p className="kicker">AGENCY ACTIVITY</p><h3>Recent loan updates</h3></div><Link className="btn small workspace-secondary" href="/dashboard/admin/loans">View loan applications</Link></div>
             {recentLoanUpdates.length ? <div className="dashboard-list">{recentLoanUpdates.map((entry) => <article className="workspace-card" key={entry.id}><p><strong>{entry.action}</strong></p><p className="muted">{entry.agency_id ? agenciesById.get(entry.agency_id) || "Agency" : "Platform"} · {entry.actor} · {new Date(entry.created_at).toLocaleString("en-IN")}</p></article>)}</div> : <p className="muted">Agency loan changes will appear here.</p>}
           </section>
           <div className="dashboard-list">

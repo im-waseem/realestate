@@ -106,6 +106,13 @@ export type LoanLead = {
   source_lead_id: string | null;
   property_id: string | null;
   customer_name: string;
+  first_name: string;
+  middle_name: string;
+  mother_name: string;
+  father_name: string;
+  date_of_birth: string | null;
+  pincode: string;
+  applicant_address: string;
   phone: string;
   email: string;
   loan_amount: number;
@@ -181,6 +188,7 @@ export type AgencyLoanProduct = {
   enabled: boolean;
   updated_at: string;
 };
+export type AgencyLoanFieldSettings = { agency_id: string; enabled_fields: string[]; updated_at: string };
 
 export type LoanType = { id: string; code: string; name: string; sort_order: number; is_active: boolean; created_at: string; updated_at: string };
 export type Lender = { id: string; name: string; lender_type: "bank" | "nbfc" | "hfc"; is_active: boolean; created_at: string; updated_at: string };
@@ -203,6 +211,7 @@ export interface Database {
       loan_leads: Table<LoanLead>;
       loan_documents: Table<LoanDocument>;
       agency_loan_products: Table<AgencyLoanProduct>;
+      agency_loan_field_settings: Table<AgencyLoanFieldSettings>;
       loan_types: Table<LoanType>;
       lenders: Table<Lender>;
       commission_rules: Table<CommissionRule>;
@@ -215,7 +224,8 @@ export interface Database {
       loan_leads_admin_v: { Row: {
         id: string; agency_id: string; agency_name: string; loan_type: string; loan_type_name: string | null;
         preferred_lender_id: string | null; preferred_lender_name: string | null; assigned_lender_id: string | null; lender_name: string | null;
-        customer_name: string; phone: string; email: string; city: string; employment_type: string; monthly_income: number;
+        customer_name: string; first_name: string; middle_name: string; mother_name: string; father_name: string; date_of_birth: string | null;
+        pincode: string; applicant_address: string; phone: string; email: string; city: string; employment_type: string; monthly_income: number;
         loan_amount: number; tenure_months: number; property_id: string | null; source_lead_id: string | null; preferred_bank: string;
         notes: string; consent: boolean; consent_at: string | null; status: LoanLead["status"]; forwarded_at: string | null;
         admin_remarks: string; sanctioned_amount: number | null; sanctioned_at: string | null; disbursed_amount: number | null;

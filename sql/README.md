@@ -83,6 +83,25 @@ admin-only review fields, and admin summary views. Agency access is limited to
 the signed-in approved agency; submitted requests become read-only. Apply after
 the loan-masters migration.
 
+22. `migrations/20261204_privacy_first_loan_intake.sql`
+
+Adds per-agency controls for applicant names, date of birth, PIN code, and
+address; exposes enabled fields to platform admins as agencies save requests;
+and disables new loan-document uploads. Existing document rows
+are retained. Apply after the loan-leads migration.
+
+23. `migrations/20261205_sync_agency_loan_access.sql`
+
+Keeps an agency's Loans dashboard access synchronized with its enabled loan
+types, including existing agencies whose product switches were already on.
+Apply after the privacy-first loan intake migration.
+
+24. `migrations/20261206_restore_loan_lead_read_grants.sql`
+
+Reasserts authenticated SELECT privileges needed by the agency-scoped RLS
+policies after a missing table grant caused `permission denied for table
+loan_leads`. Apply after the agency loan access migration.
+
 The marketplace migration contains all three feature modules in one transaction.
 The service-provider migration adds an agency-owned directory for local trades.
 The walk-in enquiry migration makes manual lead email optional and adds source
@@ -135,7 +154,9 @@ application.
 The home-loans migration adds feature-gated agency pipelines, private loan
 document metadata and a private `loan-documents` storage bucket. Uploads and
 downloads go through authenticated server routes; the bucket must remain
-private. Platform admins can review documents and all agencies' loan leads.
+private. The privacy-first loan intake migration below disables this historical
+document flow, removes its upload/download routes, and revokes application read
+access. Existing document records and stored files are retained.
 The agency-record-limits migration rejects property, customer-enquiry, or
 service-provider inserts that would exceed 30 rows of that type for an agency.
 It applies to all statuses and to enquiries submitted through property, agency

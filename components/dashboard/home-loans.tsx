@@ -3,11 +3,11 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { createLoanLead, updateLoanLead, verifyLoanDocument } from "@/app/actions";
+import { createLoanLead, updateLoanLead } from "@/app/actions";
 import { useToast } from "@/components/dashboard/toaster";
-import type { Lead, LoanDocument, LoanLead } from "@/lib/db";
+import type { Lead, LoanLead } from "@/lib/db";
 import styles from "./home-loans.module.css";
-import { LOAN_DOCUMENTS, loanProductLabel, type LoanProductType } from "@/lib/loan-products";
+import { loanProductLabel, type LoanProductType } from "@/lib/loan-products";
 
 const statuses = ["new", "docs-collected", "submitted", "sanctioned", "disbursed", "rejected"] as const;
 const money = (value: number) => new Intl.NumberFormat("en-IN", {
@@ -23,16 +23,11 @@ type LoanLeadView = LoanLead & {
   agency_name?: string;
   property_title?: string;
   assignee_name?: string;
-  documents: LoanDocument[];
 };
 type SourceLead = Pick<Lead, "id" | "agency_id" | "property_id" | "name" | "phone" | "email">;
 
 function readableStatus(value: string) {
   return value === "docs-collected" ? "Documents collected" : value.charAt(0).toUpperCase() + value.slice(1);
-}
-
-function fileSize(bytes: number) {
-  return bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 export function HomeLoansBoard({
@@ -48,7 +43,6 @@ export function HomeLoansBoard({
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-  const [uploading, setUploading] = useState<string | null>(null);
   const dialog = useRef<HTMLDialogElement>(null);
   const toast = useToast();
   const router = useRouter();
@@ -79,34 +73,6 @@ export function HomeLoansBoard({
   function saveLead(formData: FormData) {
     startTransition(async () => {
       const result = await updateLoanLead(formData);
-      toast(result.message, result.ok ? "success" : "error");
-      if (result.ok) router.refresh();
-    });
-  }
-
-  async function uploadDocument(docType: string, file: File) {
-    if (!selectedLead) return;
-    setUploading(docType);
-    const formData = new FormData();
-    formData.set("lead_id", selectedLead.id);
-    formData.set("doc_type", docType);
-    formData.set("file", file);
-    try {
-      const response = await fetch("/api/loan-documents", { method: "POST", body: formData });
-      const result = await response.json() as { message?: string; error?: string };
-      if (!response.ok) throw new Error(result.error || "Unable to upload the document.");
-      toast(result.message || "Document uploaded.", "success");
-      router.refresh();
-    } catch (error) {
-      toast(error instanceof Error ? error.message : "Unable to upload the document.", "error");
-    } finally {
-      setUploading(null);
-    }
-  }
-
-  function verifyDocument(formData: FormData) {
-    startTransition(async () => {
-      const result = await verifyLoanDocument(formData);
       toast(result.message, result.ok ? "success" : "error");
       if (result.ok) router.refresh();
     });
@@ -212,49 +178,6 @@ export function HomeLoansBoard({
               <button className="btn small" disabled={pending}>{pending ? "Saving…" : "Save updates"}</button>
             </form>
 
-            <section className={styles.documents}>
-              <div className={styles.sectionHeading}>
-                <div><p className="kicker">SECURE DOCUMENTS</p><h3>Document checklist</h3></div>
-                <small>Private files · PDF, JPEG, PNG or WebP · up to 10 MB</small>
-              </div>
-              <p className={styles.noDocuments}>Typical starting checklist based on Ruloans guidance. The lender may request additional documents for the applicant and product.</p>
-              {(LOAN_DOCUMENTS[selectedLead.loan_type] || []).map(([docType, label]) => {
-                const documents = selectedLead.documents.filter((document) => document.doc_type === docType);
-                return (
-                  <div className={styles.documentRow} key={docType}>
-                    <div className={styles.documentHeading}>
-                      <strong>{label}</strong>
-                      <label className={styles.uploadButton}>
-                        {uploading === docType ? "Uploading…" : "Upload"}
-                        <input
-                          type="file"
-                          accept="application/pdf,image/jpeg,image/png,image/webp"
-                          disabled={uploading !== null}
-                          onChange={(event) => {
-                            const file = event.currentTarget.files?.[0];
-                            if (file) void uploadDocument(docType, file);
-                            event.currentTarget.value = "";
-                          }}
-                        />
-                      </label>
-                    </div>
-                    {documents.length ? documents.map((document) => (
-                      <div className={styles.documentFile} key={document.id}>
-                        <span><strong>{document.file_name}</strong><small>{fileSize(document.file_size)} · {new Date(document.created_at).toLocaleDateString("en-IN")}</small></span>
-                        <span className={document.verified ? styles.verified : styles.unverified}>{document.verified ? "Verified" : "Pending review"}</span>
-                        <a href={`/api/loan-documents/${document.id}`} target="_blank" rel="noreferrer">Open</a>
-                        {isAdmin && !document.verified && (
-                          <form action={verifyDocument}>
-                            <input type="hidden" name="id" value={document.id} />
-                            <button type="submit" className={styles.verifyButton} disabled={pending}>Verify</button>
-                          </form>
-                        )}
-                      </div>
-                    )) : <p className={styles.noDocuments}>No {label.toLowerCase()} uploaded yet.</p>}
-                  </div>
-                );
-              })}
-            </section>
           </>
         )}
       </dialog>
@@ -272,6 +195,7 @@ export function NewHomeLoanForm({
   sourceLead,
   enabledProductsByAgency,
   lenders,
+  enabledFieldsByAgency,
 }: {
   agencies: AgencyOption[];
   properties: PropertyOption[];
@@ -282,14 +206,36 @@ export function NewHomeLoanForm({
   sourceLead?: SourceLead;
   enabledProductsByAgency: Record<string, { id: LoanProductType; label: string }[]>;
   lenders: { name: string; lender_type: string }[];
+  enabledFieldsByAgency: Record<string, string[]>;
 }) {
   const [agencyId, setAgencyId] = useState(initialAgencyId);
   const [propertyId, setPropertyId] = useState(initialPropertyId);
   const [city, setCity] = useState(properties.find((property) => property.id === initialPropertyId)?.city || "");
+  const [pincode, setPincode] = useState("");
+  const [address, setAddress] = useState("");
+  const [pincodeMessage, setPincodeMessage] = useState("");
+  const enabledFields = new Set(enabledFieldsByAgency[agencyId] || ["first_name", "middle_name", "mother_name", "father_name", "date_of_birth", "pincode", "applicant_address"]);
   const enabledProducts = enabledProductsByAgency[agencyId] || [];
   const [pending, startTransition] = useTransition();
   const toast = useToast();
   const router = useRouter();
+
+  useEffect(() => {
+    if (!enabledFields.has("pincode") || pincode.length !== 6) return;
+    let active = true;
+    setPincodeMessage("Looking up PIN code…");
+    fetch(`/api/pincode/${pincode}`).then(async (response) => {
+      const result = await response.json() as { city?: string; state?: string; error?: string };
+      if (!response.ok) throw new Error(result.error || "PIN code lookup failed.");
+      if (!active) return;
+      setCity(result.city || "");
+      setAddress([result.city, result.state, pincode].filter(Boolean).join(", "));
+      setPincodeMessage(`${result.city}, ${result.state}`);
+    }).catch((error: unknown) => {
+      if (active) setPincodeMessage(error instanceof Error ? error.message : "PIN code lookup failed.");
+    });
+    return () => { active = false; };
+  }, [pincode, agencyId]);
 
   function submit(formData: FormData) {
     startTransition(async () => {
@@ -328,10 +274,18 @@ export function NewHomeLoanForm({
             {enabledProducts.map((product) => <option key={product.id} value={product.id}>{product.label}</option>)}
           </select>
         </label>
-        <label>Customer name<input name="customer_name" defaultValue={sourceLead?.name || ""} maxLength={100} required /></label>
+        <input type="hidden" name="customer_name" value="Applicant" />
+        {enabledFields.has("first_name") && <label>First name<input name="first_name" defaultValue={sourceLead?.name.split(/\s+/)[0] || ""} maxLength={80} required /></label>}
+        {enabledFields.has("middle_name") && <label>Middle name<input name="middle_name" maxLength={80} required /></label>}
+        {enabledFields.has("mother_name") && <label>Mother's name<input name="mother_name" maxLength={150} required /></label>}
+        {enabledFields.has("father_name") && <label>Father's name<input name="father_name" maxLength={150} required /></label>}
+        {enabledFields.has("date_of_birth") && <label>Date of birth<input name="date_of_birth" type="date" required /></label>}
         <label>Mobile number<input name="phone" type="tel" defaultValue={sourceLead?.phone || ""} maxLength={25} required /></label>
-        <label>Email (optional)<input name="email" type="email" defaultValue={sourceLead?.email || ""} maxLength={254} /></label>
-        <label>City<input name="city" value={city} onChange={(event) => setCity(event.target.value)} maxLength={100} required /></label>
+        <label>Email<input name="email" type="email" defaultValue={sourceLead?.email || ""} maxLength={254} required /></label>
+        {enabledFields.has("pincode") && <label>PIN code<input name="pincode" value={pincode} inputMode="numeric" maxLength={6} onChange={(event) => setPincode(event.target.value.replace(/\D/g, "").slice(0, 6))} required /></label>}
+        {enabledFields.has("applicant_address") && <label>Address<input name="applicant_address" value={address} onChange={(event) => setAddress(event.target.value)} maxLength={500} required /></label>}
+        {enabledFields.has("pincode") && <p className="muted" role="status">{pincodeMessage}</p>}
+        <label>City / district<input name="city" value={city} onChange={(event) => setCity(event.target.value)} maxLength={100} required /></label>
         <label>Property (optional)
           <select name="property_id" value={propertyId} onChange={(event) => {
             setPropertyId(event.target.value);
@@ -365,7 +319,7 @@ export function NewHomeLoanForm({
         </label>
       </div>
       <label>Internal notes<textarea name="notes" maxLength={4000} placeholder="Any context or follow-up needed for this request." /></label>
-      <p className={styles.privacyNote}>Financial details and uploaded documents are visible only to this agency and platform admins.</p>
+      <p className={styles.privacyNote}>We do not request identity or other documents. Only details enabled for this agency are collected and shared with the platform admin when the request is submitted.</p>
       <div className={styles.formActions}>
         <Link className="btn workspace-secondary" href="/dashboard/home-loans">Cancel</Link>
         <button className="btn" disabled={pending}>{pending ? "Creating…" : "Create home-loan request"}</button>

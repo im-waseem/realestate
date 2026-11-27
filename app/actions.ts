@@ -1,4 +1,4 @@
-"use server";
+﻿"use server";
 
 import { createHash, randomUUID } from "node:crypto";
 import { redirect } from "next/navigation";
@@ -124,8 +124,15 @@ const agencyLoanLeadSchema = z.object({
   id: z.string().uuid().optional(),
   loan_type: z.string().trim().regex(/^[a-z][a-z0-9_]{1,49}$/),
   customer_name: z.string().trim().min(2).max(100),
+  first_name: z.string().trim().max(80).default(""),
+  middle_name: z.string().trim().max(80).default(""),
+  mother_name: z.string().trim().max(150).default(""),
+  father_name: z.string().trim().max(150).default(""),
+  date_of_birth: z.string().date().optional().or(z.literal("")),
+  pincode: z.string().trim().regex(/^$|^[1-9][0-9]{5}$/, "Enter a valid 6-digit Indian PIN code."),
+  applicant_address: z.string().trim().max(500),
   phone: z.string().trim().regex(/^[+\d ()-]{7,25}$/),
-  email: z.string().trim().max(254).refine((value) => !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)),
+  email: z.string().trim().email().max(254),
   city: z.string().trim().min(1).max(100),
   employment_type: z.enum(["salaried", "self_employed", "business_owner", "other"]),
   monthly_income: z.coerce.number().finite().min(0.01).max(999999999999.99),
@@ -139,7 +146,7 @@ const agencyLoanLeadSchema = z.object({
 });
 const adminLoanUpdateSchema = z.object({
   id: z.string().uuid(),
-  status: z.enum(["info_requested", "under_review", "sanctioned", "disbursed", "rejected", "cancelled"]),
+  status: z.enum(["submitted_to_admin", "info_requested", "under_review", "sanctioned", "disbursed", "rejected", "cancelled"]),
   admin_remarks: z.string().trim().max(4000),
   assigned_lender_id: z.string().uuid().optional().or(z.literal("")),
   sanctioned_amount: z.preprocess((value) => value === "" || value == null ? undefined : Number(value), z.number().finite().min(0).max(999999999999.99).optional()),
@@ -153,8 +160,15 @@ const loanCreateSchema = z.object({
   source_lead_id: loanOptionalText,
   property_id: loanOptionalText,
   customer_name: z.string().trim().min(1).max(100),
+  first_name: z.string().trim().max(80).default(""),
+  middle_name: z.string().trim().max(80).default(""),
+  mother_name: z.string().trim().max(150).default(""),
+  father_name: z.string().trim().max(150).default(""),
+  date_of_birth: z.string().trim().date().optional().or(z.literal("")),
+  pincode: z.string().trim().regex(/^$|^[1-9][0-9]{5}$/, "Enter a valid 6-digit Indian PIN code."),
+  applicant_address: z.string().trim().max(500).default(""),
   phone: z.string().trim().regex(/^[+\d ()-]{7,25}$/, "Enter a valid phone number."),
-  email: z.string().trim().max(254).refine((value) => !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value), "Enter a valid email address."),
+  email: z.string().trim().email("Enter a valid email address.").max(254),
   loan_amount: z.coerce.number().finite().min(0.01).max(999999999999.99),
   monthly_income: z.coerce.number().finite().min(0.01).max(999999999999.99),
   employment_type: z.enum(["salaried", "self_employed", "business_owner", "other"]),
@@ -171,6 +185,13 @@ function loanCreateValues(form: FormData) {
     source_lead_id: String(form.get("source_lead_id") || "").trim(),
     property_id: String(form.get("property_id") || "").trim(),
     customer_name: String(form.get("customer_name") || ""),
+    first_name: String(form.get("first_name") || ""),
+    middle_name: String(form.get("middle_name") || ""),
+    mother_name: String(form.get("mother_name") || ""),
+    father_name: String(form.get("father_name") || ""),
+    date_of_birth: String(form.get("date_of_birth") || ""),
+    pincode: String(form.get("pincode") || ""),
+    applicant_address: String(form.get("applicant_address") || ""),
     phone: String(form.get("phone") || ""),
     email: String(form.get("email") || ""),
     loan_amount: form.get("loan_amount"),
@@ -729,6 +750,7 @@ export async function updateAgencyLoanProduct(form: FormData) {
   const user = await requireUser();
   if (user.role !== "super_admin") fail("/dashboard", new Error("Only the main admin can change agency loan products."));
   let agencyId = "";
+  const returnTo = safeReturnPath(form.get("return_to"));
   try {
     agencyId = field(form, "agency_id", 100);
     const loanType = z.string().trim().regex(/^[a-z][a-z0-9_]{1,49}$/).parse(field(form, "loan_type", 50));
@@ -743,15 +765,37 @@ export async function updateAgencyLoanProduct(form: FormData) {
     if (!agency) throw new Error("Agency not found.");
     const features = normalizeAgencyFeatures(agency.features);
     features.home_loans = (enabledRows || []).length > 0;
+    features.loans = (enabledRows || []).length > 0;
     const { error: featureError } = await supabase.from("agencies").update({ features }).eq("id", agencyId);
     throwIfError(featureError);
     await recordActivity(agencyId, user.name, `${enabled ? "Enabled" : "Disabled"} ${loanType.replaceAll("_", " ")}`);
   } catch (error) {
-    fail("/dashboard", error);
+    fail(returnTo === "/dashboard/admin/loans" ? returnTo : "/dashboard", error);
   }
   revalidatePath("/dashboard");
   revalidatePath("/dashboard/home-loans");
+  revalidatePath("/dashboard/admin/loans");
+  if (returnTo === "/dashboard/admin/loans") redirect(returnTo);
   redirect("/dashboard#loans");
+}
+
+export async function updateAgencyLoanFields(form: FormData) {
+  const user = await requireUser();
+  if (user.role !== "super_admin") fail("/dashboard/admin/loans", new Error("Only the main admin can change loan intake fields."));
+  const agencyId = field(form, "agency_id", 100);
+  const allowed = ["first_name", "middle_name", "mother_name", "father_name", "date_of_birth", "pincode", "applicant_address"] as const;
+  const enabledFields = allowed.filter((key) => form.get(key) === "on");
+  try {
+    const supabase = await createSupabaseServerClient();
+    const { error } = await supabase.from("agency_loan_field_settings").upsert({ agency_id: agencyId, enabled_fields: enabledFields }, { onConflict: "agency_id" });
+    throwIfError(error);
+    await recordActivity(agencyId, user.name, "Updated loan applicant data collection settings");
+  } catch (error) {
+    fail("/dashboard/admin/loans", error);
+  }
+  revalidatePath("/dashboard/admin/loans");
+  revalidatePath("/dashboard/home-loans/new");
+  redirect("/dashboard/admin/loans?settings=updated");
 }
 
 function loanSettingsError(tab: string, error: unknown): never {
@@ -898,6 +942,7 @@ export async function deleteAgency(form: FormData) {
   try {
     const id = field(form, "agency_id", 100);
     const supabase = await createSupabaseServerClient();
+    const admin = createSupabaseAdminClient();
     const { data: agency, error: agencyError } = await supabase.from("agencies").select("id,name").eq("id", id).maybeSingle();
     throwIfError(agencyError);
     if (!agency) throw new Error("Agency not found.");
@@ -911,13 +956,12 @@ export async function deleteAgency(form: FormData) {
         throw new Error(`Unable to remove agency photos. Run the latest sql/schema.postgres.sql, then retry. ${storageError.message}`);
       }
     }
-    const { data: loanDocuments, error: loanDocumentsError } = await supabase
+    const { data: loanDocuments, error: loanDocumentsError } = await admin
       .from("loan_documents")
       .select("file_path")
       .eq("agency_id", id);
     throwIfError(loanDocumentsError);
     if ((loanDocuments ?? []).length) {
-      const admin = createSupabaseAdminClient();
       const { error: storageError } = await admin.storage
         .from("loan-documents")
         .remove((loanDocuments ?? []).map((document) => document.file_path));
@@ -1277,6 +1321,12 @@ export async function createLoanLead(form: FormData) {
     const { data: product, error: productError } = await supabase.from("agency_loan_products").select("enabled").eq("agency_id", agencyId).eq("loan_type", values.loan_type).maybeSingle();
     throwIfError(productError);
     if (!product?.enabled) return { ok: false as const, message: "This loan type is not enabled for the selected agency." };
+    const { data: fieldSettings, error: fieldSettingsError } = await supabase.from("agency_loan_field_settings").select("enabled_fields").eq("agency_id", agencyId).maybeSingle();
+    throwIfError(fieldSettingsError);
+    const enabledFields = new Set<string>(fieldSettings?.enabled_fields || ["first_name", "middle_name", "mother_name", "father_name", "date_of_birth", "pincode", "applicant_address"]);
+    for (const key of ["first_name", "middle_name", "mother_name", "father_name", "date_of_birth", "pincode", "applicant_address"] as const) {
+      if (!enabledFields.has(key) && values[key]) return { ok: false as const, message: `${key.replaceAll("_", " ")} is not collected by this agency.` };
+    }
     const { data: agency, error: agencyError } = await supabase
       .from("agencies")
       .select("id,status")
@@ -1327,7 +1377,14 @@ export async function createLoanLead(form: FormData) {
         loan_type: values.loan_type,
         source_lead_id: values.source_lead_id,
         property_id: values.property_id,
-        customer_name: values.customer_name,
+        customer_name: [values.first_name, values.middle_name].filter(Boolean).join(" ") || "Applicant",
+        first_name: enabledFields.has("first_name") ? values.first_name : "",
+        middle_name: enabledFields.has("middle_name") ? values.middle_name : "",
+        mother_name: enabledFields.has("mother_name") ? values.mother_name : "",
+        father_name: enabledFields.has("father_name") ? values.father_name : "",
+        date_of_birth: enabledFields.has("date_of_birth") ? values.date_of_birth || null : null,
+        pincode: enabledFields.has("pincode") ? values.pincode : "",
+        applicant_address: enabledFields.has("applicant_address") ? values.applicant_address : "",
         phone: values.phone,
         email: values.email.toLowerCase(),
         loan_amount: values.loan_amount,
@@ -1399,7 +1456,7 @@ export async function updateLoanLead(form: FormData) {
       .eq("id", id.data);
     throwIfError(error);
     const changes = [
-      lead.status !== status.data ? `status ${lead.status} → ${status.data}` : "",
+      lead.status !== status.data ? `status ${lead.status} â†’ ${status.data}` : "",
       lead.notes !== notes.data ? "notes updated" : "",
       lead.assigned_to !== assigneeId ? "assignee changed" : "",
     ].filter(Boolean);
@@ -1441,6 +1498,13 @@ export async function saveAgencyLoanLead(form: FormData) {
     id: id || undefined,
     loan_type: String(form.get("loan_type") || ""),
     customer_name: String(form.get("customer_name") || ""),
+    first_name: String(form.get("first_name") || ""),
+    middle_name: String(form.get("middle_name") || ""),
+    mother_name: String(form.get("mother_name") || ""),
+    father_name: String(form.get("father_name") || ""),
+    date_of_birth: String(form.get("date_of_birth") || ""),
+    pincode: String(form.get("pincode") || ""),
+    applicant_address: String(form.get("applicant_address") || ""),
     phone: String(form.get("phone") || ""),
     email: String(form.get("email") || ""),
     city: String(form.get("city") || ""),
@@ -1455,9 +1519,17 @@ export async function saveAgencyLoanLead(form: FormData) {
     consent: String(form.get("consent") || "false"),
   });
   if (!parsed.success) return { ok: false as const, message: parsed.error.issues[0]?.message || "Check the loan details." };
+  if (!parsed.data.consent) return { ok: false as const, message: "Customer consent is required before sending the request to the platform admin." };
 
   try {
     const supabase = await createSupabaseServerClient();
+    const { data: fieldSettings, error: fieldSettingsError } = await supabase.from("agency_loan_field_settings").select("enabled_fields").eq("agency_id", user.agency_id).maybeSingle();
+    throwIfError(fieldSettingsError);
+    const enabledFields = new Set<string>(fieldSettings?.enabled_fields || ["first_name", "middle_name", "mother_name", "father_name", "date_of_birth", "pincode", "applicant_address"]);
+    for (const key of ["first_name", "middle_name", "mother_name", "father_name", "date_of_birth", "pincode", "applicant_address"] as const) {
+      if (!enabledFields.has(key) && parsed.data[key]) return { ok: false as const, message: `${key.replaceAll("_", " ")} is disabled for your agency.` };
+      if (enabledFields.has(key) && !parsed.data[key]) return { ok: false as const, message: `Provide ${key.replaceAll("_", " ")} or ask your admin to disable that field.` };
+    }
     let existing: { id: string; agency_id: string; status: string } | null = null;
     if (parsed.data.id) {
       const result = await supabase.from("loan_leads").select("id,agency_id,status")
@@ -1490,7 +1562,14 @@ export async function saveAgencyLoanLead(form: FormData) {
 
     const values = {
       loan_type: parsed.data.loan_type,
-      customer_name: parsed.data.customer_name,
+      customer_name: [parsed.data.first_name, parsed.data.middle_name].filter(Boolean).join(" ") || "Applicant",
+      first_name: enabledFields.has("first_name") ? parsed.data.first_name : "",
+      middle_name: enabledFields.has("middle_name") ? parsed.data.middle_name : "",
+      mother_name: enabledFields.has("mother_name") ? parsed.data.mother_name : "",
+      father_name: enabledFields.has("father_name") ? parsed.data.father_name : "",
+      date_of_birth: enabledFields.has("date_of_birth") ? parsed.data.date_of_birth || null : null,
+      pincode: enabledFields.has("pincode") ? parsed.data.pincode : "",
+      applicant_address: enabledFields.has("applicant_address") ? parsed.data.applicant_address : "",
       phone: parsed.data.phone,
       email: parsed.data.email.toLowerCase(),
       city: parsed.data.city,
@@ -1505,28 +1584,29 @@ export async function saveAgencyLoanLead(form: FormData) {
       consent: parsed.data.consent,
     };
     let loanId = parsed.data.id;
-    if (existing) {
-      const { error } = await supabase.from("loan_leads").update(values).eq("id", existing.id).eq("agency_id", user.agency_id);
-      throwIfError(error);
-    } else {
-      loanId = randomUUID();
-      const { error } = await supabase.from("loan_leads").insert({
-        ...values,
-        id: loanId,
-        agency_id: user.agency_id,
-        created_by: user.id,
-        status: "draft",
-      });
-      throwIfError(error);
-    }
+    if (existing) return { ok: false as const, message: "Loan requests cannot be edited here. Send a new request or contact the platform admin." };
+    loanId = randomUUID();
+    const { error: insertError } = await supabase.from("loan_leads").insert({
+      ...values,
+      id: loanId,
+      agency_id: user.agency_id,
+      created_by: user.id,
+      status: "draft",
+    });
+    throwIfError(insertError);
+    const { error: submitError } = await supabase.from("loan_leads").update({ status: "submitted_to_admin", consent: true })
+      .eq("id", loanId).eq("agency_id", user.agency_id);
+    throwIfError(submitError);
     const timelineLead = { id: loanId!, agency_id: user.agency_id };
-    await recordLoanLeadHistory(timelineLead, user, existing ? "updated" : "created", existing?.status || null, existing?.status || "draft");
+    await recordLoanLeadHistory(timelineLead, user, "submitted", null, "submitted_to_admin");
+    await recordActivity(user.agency_id, user.name, `Submitted loan request for admin review: ${values.customer_name}`);
     revalidatePath("/dashboard/loans");
+    revalidatePath("/dashboard/admin/loans");
     revalidatePath("/dashboard");
-    redirect(`/dashboard/loans/${loanId}`);
+    redirect(`/dashboard/loans/${loanId}?message=Sent+to+admin+for+review`);
   } catch (error) {
     if (error instanceof Error && error.message.startsWith("NEXT_REDIRECT")) throw error;
-    return { ok: false as const, message: error instanceof Error ? error.message : "Unable to save loan request." };
+    return { ok: false as const, message: error instanceof Error ? error.message : "Unable to send loan request to the platform admin." };
   }
 }
 
@@ -1541,12 +1621,17 @@ export async function submitAgencyLoanLead(form: FormData) {
   try {
     const supabase = await createSupabaseServerClient();
     const { data: lead, error: leadError } = await supabase.from("loan_leads")
-      .select("id,agency_id,status,customer_name,phone,city,loan_amount,monthly_income,tenure_months,consent")
+      .select("id,agency_id,status,customer_name,first_name,middle_name,mother_name,father_name,date_of_birth,pincode,applicant_address,phone,email,city,loan_amount,monthly_income,tenure_months,consent")
       .eq("id", id.data).eq("agency_id", user.agency_id).maybeSingle();
     throwIfError(leadError);
     if (!lead) return { ok: false as const, message: "Loan request not found." };
     if (!["draft", "info_requested"].includes(lead.status)) return { ok: false as const, message: "This loan request has already been submitted and is locked." };
-    if (!lead.customer_name || !lead.phone || !lead.city || !lead.loan_amount || !lead.monthly_income || !lead.tenure_months) {
+    const { data: fieldSettings, error: settingsError } = await supabase.from("agency_loan_field_settings").select("enabled_fields").eq("agency_id", user.agency_id).maybeSingle();
+    throwIfError(settingsError);
+    const enabledFields = new Set<string>(fieldSettings?.enabled_fields || ["first_name", "middle_name", "mother_name", "father_name", "date_of_birth", "pincode", "applicant_address"]);
+    const missingEnabledField = ["first_name", "middle_name", "mother_name", "father_name", "date_of_birth", "pincode", "applicant_address"].find((key) => enabledFields.has(key) && !lead[key as keyof typeof lead]);
+    if (missingEnabledField) return { ok: false as const, message: `Complete ${missingEnabledField.replaceAll("_", " ")} before submitting.` };
+    if (!lead.phone || !lead.email || !lead.city || !lead.loan_amount || !lead.monthly_income || !lead.tenure_months) {
       return { ok: false as const, message: "Complete the required loan details before submitting." };
     }
     const { error } = await supabase.from("loan_leads").update({ status: "submitted_to_admin", consent: true }).eq("id", id.data).eq("agency_id", user.agency_id);
@@ -1579,9 +1664,6 @@ export async function updateAdminLoanLead(form: FormData) {
   const value = parsed.data;
   if (["info_requested", "rejected"].includes(value.status) && !value.admin_remarks) {
     return { ok: false as const, message: value.status === "info_requested" ? "Add a remark describing the information needed." : "Add a reason before rejecting this request." };
-  }
-  if (value.status === "sanctioned" && (value.sanctioned_amount === undefined || !value.sanctioned_at)) {
-    return { ok: false as const, message: "Enter the sanctioned amount and date." };
   }
   if (value.status === "disbursed" && (value.disbursed_amount === undefined || value.disbursed_amount <= 0 || !value.disbursed_at)) {
     return { ok: false as const, message: "Enter a positive disbursed amount and date." };
@@ -1616,36 +1698,5 @@ export async function updateAdminLoanLead(form: FormData) {
     return { ok: true as const, message: "Loan request updated." };
   } catch (error) {
     return { ok: false as const, message: error instanceof Error ? error.message : "Unable to update loan request." };
-  }
-}
-
-export async function verifyLoanDocument(form: FormData) {
-  const user = await requireUser();
-  if (user.role !== "super_admin") {
-    return { ok: false as const, message: "Only the platform admin can verify loan documents." };
-  }
-  const id = z.string().uuid().safeParse(String(form.get("id") || "").trim());
-  if (!id.success) return { ok: false as const, message: "Document not found." };
-
-  try {
-    const supabase = await createSupabaseServerClient();
-    const { data: document, error: documentError } = await supabase
-      .from("loan_documents")
-      .select("id,verified")
-      .eq("id", id.data)
-      .maybeSingle();
-    throwIfError(documentError);
-    if (!document) return { ok: false as const, message: "Document not found." };
-    if (document.verified) return { ok: true as const, message: "This document is already verified." };
-
-    const { error } = await supabase
-      .from("loan_documents")
-      .update({ verified: true, verified_by: user.id, verified_at: new Date().toISOString() })
-      .eq("id", id.data);
-    throwIfError(error);
-    revalidatePath("/dashboard/home-loans");
-    return { ok: true as const, message: "Document verified." };
-  } catch (error) {
-    return { ok: false as const, message: error instanceof Error ? error.message : "Unable to verify the loan document." };
   }
 }

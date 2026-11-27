@@ -40,6 +40,20 @@ export async function currentUser(): Promise<User | undefined> {
     }
     agencyStatus = agency?.status;
     features = normalizeAgencyFeatures(agency?.features);
+    if (!features.loans) {
+      const { count, error: productsError } = await supabase
+        .from("agency_loan_products")
+        .select("loan_type", { count: "exact", head: true })
+        .eq("agency_id", profile.agency_id)
+        .eq("enabled", true);
+      if (productsError) {
+        if (/agency_loan_products|relation .* does not exist/i.test(productsError.message)) {
+          throw new Error("The database is missing agency loan products. Apply sql/migrations/20261130_agency_loan_products.sql and the latest loan access migration.");
+        }
+        throw new Error(`Unable to load agency loan access: ${productsError.message}`);
+      }
+      features.loans = (count || 0) > 0;
+    }
   }
 
   return {

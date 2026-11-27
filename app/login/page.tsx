@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { login } from "@/app/actions";
 import { PlatformHeader, Notice } from "@/components/platform";
+import { PasswordInput } from "@/components/password-input";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = { title: "Sign in", robots: { index: false, follow: false } };
@@ -23,7 +24,7 @@ export default async function Login({ searchParams }: { searchParams: Promise<{ 
           <form action={login} className="stack">
             <input type="hidden" name="next" value={query.next || "/dashboard"} />
             <label>Email<input name="email" type="email" autoComplete="email" required maxLength={254} /></label>
-            <label>Password<input name="password" type="password" autoComplete="current-password" required maxLength={128} /></label>
+            <label>Password<PasswordInput name="password" autoComplete="current-password" required maxLength={128} /></label>
             <button className="btn">Sign in</button>
           </form>
           <p className="muted">New agency? <Link href="/register">Request an account</Link></p>
